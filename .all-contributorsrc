@@ -1,0 +1,24 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "contributors": [
+    {
+      "login": "dkeohane",
+      "name": "Dan Keohane",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4130519?v=4",
+      "profile": "https://dkeohane.github.io/",
+      "contributions": [
+        "code"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "projectName": "aws-account-operator",
+  "projectOwner": "dkeohane",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "skipCi": true
+}
