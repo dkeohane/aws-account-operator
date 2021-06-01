@@ -13,6 +13,7 @@ The operator is deployed to an OpenShift cluster in the `aws-account-operator` n
 ## Quick Start
 
 This Quick Start section assumes that you are working on a team that already has AWS Accounts set up for development or testing.
+
 For first time setup, see the [Installation](docs/1.0-Installation.md) documentation page.
 
 First, set up your required environment variables:
