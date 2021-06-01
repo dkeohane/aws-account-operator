@@ -13,7 +13,10 @@ The operator is deployed to an OpenShift cluster in the `aws-account-operator` n
 ## Quick Start
 
 This Quick Start section assumes that you are working on a team that already has AWS Accounts set up for development or testing.
+
+
 For first time setup, see the [Installation](docs/1.0-Installation.md) documentation page.
+
 
 First, set up your required environment variables:
 
@@ -39,6 +42,29 @@ OPERATOR_SECRET_ACCESS_KEY
 
 These environment variables are needed to be set the first time you deploy the operator locally.
 Then, run `make predeploy` to set up the required CRs.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 Then, you should be able to run `operator-sdk run --local --namespace aws-account-operator` or `make deploy-local`, and you're up and running.
 
