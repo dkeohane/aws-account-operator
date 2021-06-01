@@ -1,4 +1,7 @@
 # AWS Account Operator
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors-)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 [![codecov](https://codecov.io/gh/openshift/aws-account-operator/branch/master/graph/badge.svg)](https://codecov.io/gh/openshift/aws-account-operator)
 
@@ -59,3 +62,23 @@ See the [README](boilerplate/openshift/golang-osd-operator/README.md) for detail
 ## Further Reading
 
 To dive deeper into the documentation, visit our [`docs`](docs) folder.
+
+## Contributors ✨
+
+Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tr>
+    <td align="center"><a href="https://dkeohane.github.io/"><img src="https://avatars.githubusercontent.com/u/4130519?v=4?s=100" width="100px;" alt=""/><br /><sub><b>Dan Keohane</b></sub></a><br /><a href="https://github.com/dkeohane/aws-account-operator/commits?author=dkeohane" title="Code">💻</a></td>
+  </tr>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!
