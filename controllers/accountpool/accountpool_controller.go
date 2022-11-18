@@ -87,6 +87,7 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 
 	// Create Account CR
 	newAccount := account.GenerateAccountCR(awsv1alpha1.AccountCrNamespace)
+	newAccount.Spec.AccountPool = currentAccountPool.Name
 	utils.AddFinalizer(newAccount, awsv1alpha1.AccountFinalizer)
 
 	// Set AccountPool instance as the owner and controller

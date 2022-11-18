@@ -3,6 +3,8 @@ package accountclaim
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/openshift/aws-account-operator/config"
 	"github.com/openshift/aws-account-operator/controllers/account"
@@ -15,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -151,6 +152,12 @@ func (r *AccountClaimReconciler) Reconcile(ctx context.Context, request ctrl.Req
 	listOpts := []client.ListOption{
 		client.InNamespace(awsv1alpha1.AccountCrNamespace),
 	}
+
+	// If the AccountClaim is targetting a specific AccountPool, we want to claim an account from it
+	if accountClaim.Spec.AccountPool != "" {
+		listOpts = append(listOpts, client.MatchingFields{"spec.accountPool": accountClaim.Spec.AccountPool})
+	}
+
 	if err = r.Client.List(context.TODO(), accountList, listOpts...); err != nil {
 		reqLogger.Error(err, "Unable to get accountList")
 		return reconcile.Result{}, err

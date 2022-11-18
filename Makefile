@@ -276,7 +276,9 @@ predeploy-aws-account-operator: ## Predeploy AWS Account Operator
 	# Create aws-account-operator CRDs
 	@ls deploy/crds/*.yaml | xargs -L1 oc apply -f
 	# Create zero size account pool
-	@oc apply -f hack/files/aws.managed.openshift.io_v1alpha1_zero_size_accountpool.yaml
+	@oc process --local -p NAME="zero-size-accountpool" -p SIZE=0 -f hack/templates/aws.managed.openshift.io_v1alpha1_accountpool.tmpl | oc apply -f -	
+	# Create zero size account pool
+	@oc process --local -p NAME="hs-zero-size-accountpool" -p SIZE=0 -f hack/templates/aws.managed.openshift.io_v1alpha1_accountpool.tmpl | oc apply -f -
 
 .PHONY: validate-deployment
 validate-deployment: check-aws-account-id-env check-sts-setup ## Validates deployment configuration
