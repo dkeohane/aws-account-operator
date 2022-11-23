@@ -147,26 +147,34 @@ func (r *AccountClaimReconciler) Reconcile(ctx context.Context, request ctrl.Req
 		return reconcile.Result{}, r.statusUpdate(reqLogger, accountClaim)
 	}
 
-	accountList := &awsv1alpha1.AccountList{}
-
-	listOpts := []client.ListOption{
-		client.InNamespace(awsv1alpha1.AccountCrNamespace),
-	}
-
-	// If the AccountClaim is targetting a specific AccountPool, we want to claim an account from it
-	if accountClaim.Spec.AccountPool != "" {
-		listOpts = append(listOpts, client.MatchingFields{"spec.accountPool": accountClaim.Spec.AccountPool})
-	}
-
-	if err = r.Client.List(context.TODO(), accountList, listOpts...); err != nil {
-		reqLogger.Error(err, "Unable to get accountList")
-		return reconcile.Result{}, err
-	}
-
 	var unclaimedAccount *awsv1alpha1.Account
 
 	// Get an unclaimed account from the pool
 	if accountClaim.Spec.AccountLink == "" {
+
+		accountList := &awsv1alpha1.AccountList{}
+
+		listOpts := []client.ListOption{
+			client.InNamespace(awsv1alpha1.AccountCrNamespace),
+		}
+
+		if err = r.Client.List(context.TODO(), accountList, listOpts...); err != nil {
+			reqLogger.Error(err, "Unable to get accountList")
+			return reconcile.Result{}, err
+		}
+
+		// If the AccountClaim is targetting a specific AccountPool, we want to claim an account from it
+
+		filteredAccountList := &awsv1alpha1.AccountList{}
+		if accountClaim.Spec.AccountPool != "" {
+			for _, acc := range accountList.Items {
+				if acc.Spec.AccountPool == accountClaim.Spec.AccountPool {
+					filteredAccountList.Items = append(filteredAccountList.Items, acc)
+				}
+			}
+			accountList = filteredAccountList
+		}
+
 		unclaimedAccount, err = getUnclaimedAccount(reqLogger, accountList, accountClaim)
 		if err != nil {
 			reqLogger.Error(err, "Unable to select an unclaimed account from the pool")
