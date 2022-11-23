@@ -59,7 +59,7 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 	}
 
 	// Calculate unclaimed accounts vs claimed accounts
-	calculatedStatus, err := r.calculateAccountPoolStatus()
+	calculatedStatus, err := r.calculateAccountPoolStatus(currentAccountPool.Name)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -105,7 +105,7 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 }
 
 // Calculates the unclaimedAccountCount and Claimed Account Counts
-func (r *AccountPoolReconciler) calculateAccountPoolStatus() (awsv1alpha1.AccountPoolStatus, error) {
+func (r *AccountPoolReconciler) calculateAccountPoolStatus(poolName string) (awsv1alpha1.AccountPoolStatus, error) {
 	unclaimedAccountCount := 0
 	claimedAccountCount := 0
 	availableAccounts := 0
@@ -125,6 +125,12 @@ func (r *AccountPoolReconciler) calculateAccountPoolStatus() (awsv1alpha1.Accoun
 		// if the account is not owned by the accountpool, skip it
 		if !account.IsOwnedByAccountPool() {
 			continue
+		}
+
+		if poolName != "" {
+			if account.Spec.AccountPool != poolName {
+				continue
+			}
 		}
 
 		// count unclaimed accounts
