@@ -11,6 +11,9 @@ import (
 // +k8s:openapi-gen=true
 type AccountPoolSpec struct {
 	PoolSize int `json:"poolSize"`
+
+	// Whether the pool is a hypershift or not
+	IsHypershift bool `json:"isHypershift"`
 }
 
 // AccountPoolStatus defines the observed state of AccountPool

@@ -151,31 +151,7 @@ func (r *AccountClaimReconciler) Reconcile(ctx context.Context, request ctrl.Req
 
 	// Get an unclaimed account from the pool
 	if accountClaim.Spec.AccountLink == "" {
-
-		accountList := &awsv1alpha1.AccountList{}
-
-		listOpts := []client.ListOption{
-			client.InNamespace(awsv1alpha1.AccountCrNamespace),
-		}
-
-		if err = r.Client.List(context.TODO(), accountList, listOpts...); err != nil {
-			reqLogger.Error(err, "Unable to get accountList")
-			return reconcile.Result{}, err
-		}
-
-		// If the AccountClaim is targetting a specific AccountPool, we want to claim an account from it
-
-		filteredAccountList := &awsv1alpha1.AccountList{}
-		if accountClaim.Spec.AccountPool != "" {
-			for _, acc := range accountList.Items {
-				if acc.Spec.AccountPool == accountClaim.Spec.AccountPool {
-					filteredAccountList.Items = append(filteredAccountList.Items, acc)
-				}
-			}
-			accountList = filteredAccountList
-		}
-
-		unclaimedAccount, err = getUnclaimedAccount(reqLogger, accountList, accountClaim)
+		unclaimedAccount, err = getUnclaimedAccount(reqLogger, accountClaim)
 		if err != nil {
 			reqLogger.Error(err, "Unable to select an unclaimed account from the pool")
 			return reconcile.Result{}, err
@@ -442,47 +418,88 @@ func (r *AccountClaimReconciler) getClaimedAccount(accountLink string, namespace
 	return account, nil
 }
 
-func getUnclaimedAccount(reqLogger logr.Logger, accountList *awsv1alpha1.AccountList, accountClaim *awsv1alpha1.AccountClaim) (*awsv1alpha1.Account, error) {
-	var unclaimedAccount awsv1alpha1.Account
-	var reusedAccount awsv1alpha1.Account
-	var unclaimedAccountFound = false
-	var reusedAccountFound = false
-	time.Sleep(1000 * time.Millisecond)
+func (r *AccountClaimReconciler) getUnclaimedAccount(reqLogger logr.Logger, accountClaim *awsv1alpha1.AccountClaim) (*awsv1alpha1.Account, error) {
 
-	// Range through accounts and select the first one that doesn't have a claim link
-	for i, account := range accountList.Items {
-		if !account.Status.Claimed && account.Spec.ClaimLink == "" && account.Status.State == "Ready" {
-			// Check for a reused account with matching legalEntity
-			if account.Status.Reused {
-				if matchAccountForReuse(&accountList.Items[i], accountClaim) {
-					reusedAccountFound = true
-					reusedAccount = account
-					// if available we break the loop, reused account takes priority
-					break
-				}
-			} else {
-				// If account is not reused, and we didn't claim one yet, do it
-				if !unclaimedAccountFound {
-					unclaimedAccount = account
-					unclaimedAccountFound = true
-				}
+	accountList := &awsv1alpha1.AccountList{}
+
+	listOpts := []client.ListOption{
+		client.InNamespace(awsv1alpha1.AccountCrNamespace),
+	}
+
+	if err := r.Client.List(context.TODO(), accountList, listOpts...); err != nil {
+		reqLogger.Error(err, "Unable to get accountList")
+		return nil, err
+	}
+
+	// If the AccountClaim is targetting a specific AccountPool, we want to claim an account from it
+	if accountClaim.Spec.AccountPool != "" {
+		for _, account := range accountList.Items {
+			if account.Spec.AccountPool == accountClaim.Spec.AccountPool {
+				return checkClaimAccountValidity(reqLogger, account, accountClaim)
+			}
+		}
+
+	} else {
+		// If no accountpool is specified, we'll need to filter out hypershift accounts to retrieve only default
+		hypershiftMap, err := r.getAccountPoolHypershiftStatus()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, account := range accountList.Items {
+			// ensure account doesn't belong to HS accountpool
+			if !hypershiftMap[account.Spec.AccountPool] {
+				return checkClaimAccountValidity(reqLogger, account, accountClaim)
 			}
 		}
 	}
 
-	// Give priority to reusing accounts instead of claiming
-	if reusedAccountFound {
-		reqLogger.Info(fmt.Sprintf("Reusing account: %s", reusedAccount.ObjectMeta.Name))
-		return &reusedAccount, nil
+	return nil, fmt.Errorf("can't find a suitable account to claim")
+}
+
+func checkClaimAccountValidity(reqLogger logr.Logger, account awsv1alpha1.Account, accountClaim *awsv1alpha1.AccountClaim) (*awsv1alpha1.Account, error) {
+
+	var unclaimedAccount awsv1alpha1.Account
+	var unclaimedAccountFound = false
+
+	if !account.Status.Claimed && account.Spec.ClaimLink == "" && account.Status.State == "Ready" {
+		// Check for a reused account with matching legalEntity
+		if account.Status.Reused {
+			if matchAccountForReuse(&account, accountClaim) {
+				reqLogger.Info(fmt.Sprintf("Reusing account: %s", account.ObjectMeta.Name))
+				return &account, nil
+			}
+		} else {
+			// If account is not reused, and we didn't claim one yet, do it
+			if !unclaimedAccountFound {
+				unclaimedAccount = account
+				unclaimedAccountFound = true
+			}
+		}
 	}
 	// Go for unclaimed accounts
 	if unclaimedAccountFound {
 		reqLogger.Info(fmt.Sprintf("Claiming account: %s", unclaimedAccount.ObjectMeta.Name))
 		return &unclaimedAccount, nil
 	}
-
 	// Neither unclaimed nor reused accounts found
 	return nil, fmt.Errorf("can't find a ready account to claim")
+}
+
+func (r *AccountClaimReconciler) getAccountPoolHypershiftStatus() (map[string]bool, error) {
+
+	accountPoolList := &awsv1alpha1.AccountPoolList{}
+	err := r.Client.List(context.TODO(), accountPoolList, client.InNamespace(awsv1alpha1.AccountCrNamespace))
+	if err != nil {
+		return nil, err
+	}
+
+	var accountPoolHypershiftStatus map[string]bool
+	for _, accountPool := range accountPoolList.Items {
+		accountPoolHypershiftStatus[accountPool.Name] = accountPool.Spec.IsHypershift
+	}
+
+	return accountPoolHypershiftStatus, nil
 }
 
 func (r *AccountClaimReconciler) createIAMSecret(reqLogger logr.Logger, accountClaim *awsv1alpha1.AccountClaim, unclaimedAccount *awsv1alpha1.Account) error {
