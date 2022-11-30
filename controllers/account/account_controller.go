@@ -38,12 +38,6 @@ import (
 var log = logf.Log.WithName("controller_account")
 
 const (
-	// Service Quota-related constants
-	// vCPUQuotaCode
-	vCPUQuotaCode = "L-1216C47A"
-	// vCPUServiceCode
-	vCPUServiceCode = "ec2"
-
 	// createPendTime is the maximum time we allow an Account to sit in Creating state before we
 	// time out and set it to Failed.
 	createPendTime = utils.WaitTime * time.Minute
@@ -486,6 +480,7 @@ func (r *AccountReconciler) handleAccountInitializingRegions(reqLogger logr.Logg
 	return reconcile.Result{}, nil
 }
 
+// TODO Add service quota validation here
 func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logger, currentAcctInstance *awsv1alpha1.Account, awsSetupClient awsclient.Client) (reconcile.Result, error) {
 	// If the supportCaseID is blank and Account State = PendingVerification, create a case
 	if !currentAcctInstance.HasSupportCaseID() {
@@ -1321,7 +1316,7 @@ func (r *AccountReconciler) handleCreateAdminAccessRole(
 func (r *AccountReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.awsClientBuilder = &awsclient.Builder{}
-	
+
 	maxReconciles, err := utils.GetControllerMaxReconciles(controllerName)
 	if err != nil {
 		log.Error(err, "missing max reconciles for controller", "controller", controllerName)

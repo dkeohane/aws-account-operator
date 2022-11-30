@@ -151,7 +151,7 @@ func (r *AccountClaimReconciler) Reconcile(ctx context.Context, request ctrl.Req
 
 	// Get an unclaimed account from the pool
 	if accountClaim.Spec.AccountLink == "" {
-		unclaimedAccount, err = getUnclaimedAccount(reqLogger, accountClaim)
+		unclaimedAccount, err = r.getUnclaimedAccount(reqLogger, accountClaim)
 		if err != nil {
 			reqLogger.Error(err, "Unable to select an unclaimed account from the pool")
 			return reconcile.Result{}, err
@@ -438,17 +438,20 @@ func (r *AccountClaimReconciler) getUnclaimedAccount(reqLogger logr.Logger, acco
 				return checkClaimAccountValidity(reqLogger, account, accountClaim)
 			}
 		}
-
 	} else {
-		// If no accountpool is specified, we'll need to filter out hypershift accounts to retrieve only default
-		hypershiftMap, err := r.getAccountPoolHypershiftStatus()
+		defaultAccountPoolName, err := r.getDefaultAccountPoolName()
+
 		if err != nil {
 			return nil, err
 		}
 
+		if defaultAccountPoolName == "" {
+			return nil, fmt.Errorf("can't find a ready account to claim") // TODO CHANGE WORDING
+		}
+
 		for _, account := range accountList.Items {
-			// ensure account doesn't belong to HS accountpool
-			if !hypershiftMap[account.Spec.AccountPool] {
+			// Ensure we're pulling accounts from the default accountPool
+			if account.Spec.AccountPool == defaultAccountPoolName {
 				return checkClaimAccountValidity(reqLogger, account, accountClaim)
 			}
 		}
@@ -486,20 +489,19 @@ func checkClaimAccountValidity(reqLogger logr.Logger, account awsv1alpha1.Accoun
 	return nil, fmt.Errorf("can't find a ready account to claim")
 }
 
-func (r *AccountClaimReconciler) getAccountPoolHypershiftStatus() (map[string]bool, error) {
-
+func (r *AccountClaimReconciler) getDefaultAccountPoolName() (string, error) {
 	accountPoolList := &awsv1alpha1.AccountPoolList{}
 	err := r.Client.List(context.TODO(), accountPoolList, client.InNamespace(awsv1alpha1.AccountCrNamespace))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	var accountPoolHypershiftStatus map[string]bool
 	for _, accountPool := range accountPoolList.Items {
-		accountPoolHypershiftStatus[accountPool.Name] = accountPool.Spec.IsHypershift
+		if accountPool.Spec.PoolType == awsv1alpha1.DefaultPoolType {
+			return accountPool.Name, nil
+		}
 	}
-
-	return accountPoolHypershiftStatus, nil
+	return "", nil
 }
 
 func (r *AccountClaimReconciler) createIAMSecret(reqLogger logr.Logger, accountClaim *awsv1alpha1.AccountClaim, unclaimedAccount *awsv1alpha1.Account) error {
