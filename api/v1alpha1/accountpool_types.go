@@ -20,7 +20,7 @@ type AccountPoolSpec struct {
 	PoolSize int `json:"poolSize"`
 
 	// +kubebuilder:validation:Enum=Default;Hypershift
-	PoolType AccountPoolType `json:"AccountPoolType"`
+	PoolType AccountPoolType `json:"poolType"`
 }
 
 // AccountPoolStatus defines the observed state of AccountPool

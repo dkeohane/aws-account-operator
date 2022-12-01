@@ -4,6 +4,7 @@ kind: Template
 parameters:
 - name: NAME
 - name: SIZE
+- name: TYPE
 objects:
 - apiVersion: aws.managed.openshift.io/v1alpha1
   kind: AccountPool
@@ -12,3 +13,4 @@ objects:
     namespace: aws-account-operator
   spec:
     poolSize: ${{SIZE}}
+    poolType: "${TYPE}"

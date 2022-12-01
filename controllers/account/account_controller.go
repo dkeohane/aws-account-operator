@@ -536,6 +536,8 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 	if resolved {
 		reqLogger.Info("case resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
 
+		// DO MY STUFF HERE
+
 		utils.SetAccountStatus(currentAcctInstance, "Account ready to be claimed", awsv1alpha1.AccountReady, AccountReady)
 		return reconcile.Result{}, r.statusUpdate(currentAcctInstance)
 	}

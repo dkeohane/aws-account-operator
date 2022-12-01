@@ -504,6 +504,12 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountClaimSpec(ref com
 							Format: "",
 						},
 					},
+					"accountPool": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
 				},
 				Required: []string{"legalEntity", "awsCredentialSecret", "aws", "accountLink"},
 			},
@@ -675,8 +681,15 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountPoolSpec(ref comm
 							Format:  "int32",
 						},
 					},
+					"poolType": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
 				},
-				Required: []string{"poolSize"},
+				Required: []string{"poolSize", "poolType"},
 			},
 		},
 	}
@@ -792,6 +805,12 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountSpec(ref common.R
 					"manualSTSMode": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"boolean"},
+							Format: "",
+						},
+					},
+					"accountPool": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
 							Format: "",
 						},
 					},

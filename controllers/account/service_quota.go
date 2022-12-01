@@ -3,13 +3,13 @@ package account
 import (
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	retry "github.com/avast/retry-go"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/servicequotas"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/go-logr/logr"
 	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
 	"github.com/openshift/aws-account-operator/pkg/awsclient"
@@ -17,12 +17,72 @@ import (
 )
 
 const (
+	/*
+	   limits required are in this accepted adr's "how" section: SD-ADR-0075: OSD Fleet Manager AWS Account Management
+	   L-1216C47A → 750 // Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances
+	   L-69A177A2 → 255 // Network Load Balancers per Region
+	   L-0EA8095F → 200 // Inbound or outbound rules per security group
+
+	*/
+
 	// vCPUQuotaCode
 	vCPUQuotaCode = "L-1216C47A"
 	// vCPUServiceCode
 	vCPUServiceCode = "ec2"
 )
 
+func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, creds *sts.AssumeRoleOutput, quotaCode string, serviceCode string, quotaValue float64) error {
+
+	awsClient, err := r.awsClientBuilder.GetClient(controllerName, r.Client, awsclient.NewAwsClientInput{
+		AwsCredsSecretIDKey:     *creds.Credentials.AccessKeyId,
+		AwsCredsSecretAccessKey: *creds.Credentials.SecretAccessKey,
+		AwsToken:                *creds.Credentials.SessionToken,
+		AwsRegion:               "us-east-1", // TODO Is this ok??
+	})
+
+	if err != nil {
+		return err
+	}
+
+	quotaIncreaseRequired, err := serviceQuotaNeedsIncrease(awsClient, quotaCode, serviceCode, quotaValue)
+	if err != nil {
+		reqLogger.Error(err, "failed retrieving current vCPU quota from AWS")
+	}
+
+	if quotaIncreaseRequired {
+		reqLogger.Info("Quota Increase required for ..... ") // TODO improve
+		caseID, err := checkQuotaRequestHistory(awsClient, quotaCode, serviceCode, quotaValue)
+		if err != nil {
+			reqLogger.Error(err, "failed retrieving quota change history")
+		}
+
+		// If a Case ID was found, log it - the request was already submitted
+		if caseID != "" {
+			reqLogger.Info("found matching quota change request", "caseID", caseID)
+		}
+
+		// If there is not matching request already,
+		// and there were no errors trying to retrieve them,
+		// then request a quota increase
+		if caseID == "" && err == nil {
+			reqLogger.Info("submitting vCPU quota increase request", "region", region)
+			caseID, err = setServiceQuota(awsClient, quotaCode, serviceCode, quotaValue)
+			if err != nil {
+				reqLogger.Error(err, "failed requesting vCPU quota increase")
+			}
+		}
+
+		// If the caseID is set, a quota increase was requested, either just now or previously. Log it.
+		// Can't update account conditions from within the asyncRegionInit goroutine, because
+		// the account is being updated elsewhere and will conflict.
+		if caseID != "" {
+			reqLogger.Info("quota increase request submitted successfully", "region", region, "caseID", caseID)
+		}
+	}
+	return nil
+}
+
+/*
 func GetServiceQuotasForPool() error {
 	configMap, err := controllerutils.GetOperatorConfigMap(r.Client)
 	if err != nil {
@@ -38,22 +98,8 @@ func GetServiceQuotasForPool() error {
 
 }
 
-// processConfigMapRegions is a very hacky way of turning the region ami data we store in the configmap into an region-ami map
-func processConfigMapAccountPoolsQuotas(accountPoolsString string) map[string]awsv1alpha1.AmiSpec {
-	output := make(map[string]awsv1alpha1.AmiSpec)
-	regionsDelimited := strings.Split(regionString, "\n")
-	for _, value := range regionsDelimited {
-		tempArr := strings.Split(value, ":")
-		if len(tempArr) == 3 {
-			output[strings.ReplaceAll(tempArr[0], " ", "")] = awsv1alpha1.AmiSpec{
-				Ami:          strings.ReplaceAll(tempArr[1], " ", ""),
-				InstanceType: strings.ReplaceAll(tempArr[2], " ", ""),
-			}
-		}
-	}
-	return output
-}
 
+*/
 // getDesiredServiceQuotaValue retrieves the desired quota information from the operator configmap and converts it to a float64
 func (r *AccountReconciler) getDesiredServiceQuotaValue(reqLogger logr.Logger, quota string) (float64, error) {
 	var err error
@@ -78,7 +124,7 @@ func (r *AccountReconciler) getDesiredServiceQuotaValue(reqLogger logr.Logger, q
 	return vCPUQuota, nil
 }
 
-func serviceQuotaNeedsIncrease(client awsclient.Client, quotaCode string, serviceCode string, desiredQuota float64) (bool, error) { // TODO add param and rename
+func serviceQuotaNeedsIncrease(client awsclient.Client, quotaCode string, serviceCode string, desiredQuota float64) (bool, error) {
 	var result *servicequotas.GetServiceQuotaOutput
 
 	// Default is 1/10 of a second, but any retries we need to make should be delayed a few seconds
@@ -90,8 +136,8 @@ func serviceQuotaNeedsIncrease(client awsclient.Client, quotaCode string, servic
 			// Get the current existing quota setting
 			result, err = client.GetServiceQuota(
 				&servicequotas.GetServiceQuotaInput{
-					QuotaCode:   aws.String(quotaCode),   // TODO change to param
-					ServiceCode: aws.String(serviceCode), // TODO change to param
+					QuotaCode:   aws.String(quotaCode),
+					ServiceCode: aws.String(serviceCode),
 				},
 			)
 			return err
@@ -132,7 +178,7 @@ func serviceQuotaNeedsIncrease(client awsclient.Client, quotaCode string, servic
 
 // setRegionVCPUQuota sets the AWS quota limit for vCPUs in the region
 // This just sends the request, and checks that it was submitted, and does not wait
-func setServiceQuota(client awsclient.Client, quotaCode string, serviceCode string, desiredQuota float64) (string, error) { // TODO add new params and rename func
+func setServiceQuota(client awsclient.Client, quotaCode string, serviceCode string, desiredQuota float64) (string, error) {
 	// Request a service quota increase for vCPU quota
 	var result *servicequotas.RequestServiceQuotaIncreaseOutput
 	var alreadySubmitted bool

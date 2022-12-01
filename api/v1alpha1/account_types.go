@@ -35,11 +35,28 @@ type AccountSpec struct {
 	// +optional
 	ClaimLink string `json:"claimLink"`
 	// +optional
-	ClaimLinkNamespace string      `json:"claimLinkNamespace,omitempty"`
-	LegalEntity        LegalEntity `json:"legalEntity,omitempty"`
-	ManualSTSMode      bool        `json:"manualSTSMode,omitempty"`
-	AccountPool        string      `json:"accountPool,omitempty"`
+	ClaimLinkNamespace string                `json:"claimLinkNamespace,omitempty"`
+	LegalEntity        LegalEntity           `json:"legalEntity,omitempty"`
+	ManualSTSMode      bool                  `json:"manualSTSMode,omitempty"`
+	AccountPool        string                `json:"accountPool,omitempty"`
+	ServiceQuotas      []AccountServiceQuota `json:"serviceQuotas,omitempty"`
 }
+
+//
+// +k8s:openapi-gen=true
+type AccountServiceQuota struct {
+	// +kubebuilder:validation:Enum=Default;Hypershift
+	Type SupportedServiceQuotas `json:"type"`
+
+	Value float64 `json:"value"`
+}
+
+type SupportedServiceQuotas string
+
+const (
+	sq1 SupportedServiceQuotas = "Default"
+	sq2 SupportedServiceQuotas = "Hypershift" // TODO service-qouta-limited
+)
 
 // AccountStatus defines the observed state of Account
 // +k8s:openapi-gen=true

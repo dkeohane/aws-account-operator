@@ -3,6 +3,8 @@ package accountpool
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -95,6 +97,10 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 		return reconcile.Result{}, err
 	}
 
+	if err = r.handleServiceQuotas(newAccount); err != nil {
+		return reconcile.Result{}, err
+	}
+
 	reqLogger.Info(fmt.Sprintf("Creating account %s for accountpool. Unclaimed accounts: %d, poolsize%d", newAccount.Name, unclaimedAccountCount, poolSizeCount))
 	err = r.Client.Create(context.TODO(), newAccount)
 	if err != nil {
@@ -102,6 +108,62 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 	}
 
 	return reconcile.Result{}, nil
+}
+
+func (r *AccountPoolReconciler) handleServiceQuotas(account *awsv1alpha1.Account) error {
+
+	configMapServiceQuotas, err := r.parseConfigMapServiceQuotas(account.Spec.AccountPool)
+	if err != nil {
+		return err
+	}
+
+	if configMapServiceQuotas[account.Spec.AccountPool] == nil {
+		return nil
+	}
+
+	account.Spec.ServiceQuotas = configMapServiceQuotas[account.Spec.AccountPool]
+
+	return nil
+}
+
+func (r *AccountPoolReconciler) parseConfigMapServiceQuotas(poolName string) (map[string][]awsv1alpha1.AccountServiceQuota, error) {
+
+	cm, err := utils.GetOperatorConfigMap(r.Client)
+	if err != nil {
+		log.Error(err, "failed retrieving configmap")
+		return nil, err
+	}
+
+	accountpoolString := cm.Data["accountpool"]
+	accountpoolDelimited := strings.Split(accountpoolString, "\n")
+	var accountPoolName string
+	output := make(map[string][]awsv1alpha1.AccountServiceQuota)
+
+	for _, value := range accountpoolDelimited {
+		tempArr := strings.Split(value, ":")
+
+		if len(tempArr) == 2 {
+			accountPoolName = strings.ReplaceAll(tempArr[0], " ", "")
+		}
+
+		if len(tempArr) == 3 {
+			if accountPoolName == poolName {
+				sqType := awsv1alpha1.SupportedServiceQuotas(strings.ReplaceAll(tempArr[1], " ", ""))
+				value, err := strconv.ParseFloat(tempArr[2], 64)
+
+				if err != nil {
+					return nil, err
+				}
+
+				output[accountPoolName] = append(output[accountPoolName], awsv1alpha1.AccountServiceQuota{
+					Type:  sqType,
+					Value: value,
+				})
+			}
+		}
+	}
+
+	return output, nil
 }
 
 // Calculates the unclaimedAccountCount and Claimed Account Counts
