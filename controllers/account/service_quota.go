@@ -3,17 +3,18 @@ package account
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	retry "github.com/avast/retry-go"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/servicequotas"
-	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/go-logr/logr"
 	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
 	"github.com/openshift/aws-account-operator/pkg/awsclient"
 	controllerutils "github.com/openshift/aws-account-operator/pkg/utils"
+	"github.com/openshift/aws-account-operator/test/fixtures"
 )
 
 const (
@@ -31,27 +32,23 @@ const (
 	vCPUServiceCode = "ec2"
 )
 
-func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, creds *sts.AssumeRoleOutput, quotaCode string, serviceCode string, quotaValue float64) error {
+func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, serviceQuota awsv1alpha1.AccountServiceQuota, wg *sync.WaitGroup) error {
 
-	awsClient, err := r.awsClientBuilder.GetClient(controllerName, r.Client, awsclient.NewAwsClientInput{
-		AwsCredsSecretIDKey:     *creds.Credentials.AccessKeyId,
-		AwsCredsSecretAccessKey: *creds.Credentials.SecretAccessKey,
-		AwsToken:                *creds.Credentials.SessionToken,
-		AwsRegion:               "us-east-1", // TODO Is this ok??
-	})
+	defer wg.Done()
 
-	if err != nil {
-		return err
+	serviceCode, found := getServiceCode(serviceQuota.QuotaCode)
+	if !found {
+		reqLogger.Error(fixtures.NotFound, "Cannot find service code for QuotaCode", "QuotaCode", string(serviceQuota.QuotaCode))
 	}
 
-	quotaIncreaseRequired, err := serviceQuotaNeedsIncrease(awsClient, quotaCode, serviceCode, quotaValue)
+	quotaIncreaseRequired, err := serviceQuotaNeedsIncrease(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 	if err != nil {
 		reqLogger.Error(err, "failed retrieving current vCPU quota from AWS")
 	}
 
 	if quotaIncreaseRequired {
 		reqLogger.Info("Quota Increase required for ..... ") // TODO improve
-		caseID, err := checkQuotaRequestHistory(awsClient, quotaCode, serviceCode, quotaValue)
+		caseID, err := checkQuotaRequestHistory(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 		if err != nil {
 			reqLogger.Error(err, "failed retrieving quota change history")
 		}
@@ -65,8 +62,9 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, cr
 		// and there were no errors trying to retrieve them,
 		// then request a quota increase
 		if caseID == "" && err == nil {
-			reqLogger.Info("submitting vCPU quota increase request", "region", region)
-			caseID, err = setServiceQuota(awsClient, quotaCode, serviceCode, quotaValue)
+			// TODO UPDATE
+			// reqLogger.Info("submitting vCPU quota increase request", "region", '')
+			caseID, err = setServiceQuota(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 			if err != nil {
 				reqLogger.Error(err, "failed requesting vCPU quota increase")
 			}
@@ -76,30 +74,25 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, cr
 		// Can't update account conditions from within the asyncRegionInit goroutine, because
 		// the account is being updated elsewhere and will conflict.
 		if caseID != "" {
-			reqLogger.Info("quota increase request submitted successfully", "region", region, "caseID", caseID)
+			// TODO UPDATE
+			// reqLogger.Info("quota increase request submitted successfully", "region", region, "caseID", caseID)
 		}
+	} else {
+		wg.Done()
 	}
 	return nil
 }
 
-/*
-func GetServiceQuotasForPool() error {
-	configMap, err := controllerutils.GetOperatorConfigMap(r.Client)
-	if err != nil {
-		return err
+func getServiceCode(quotaCode awsv1alpha1.SupportedServiceQuotas) (string, bool) {
+
+	servicesMap := map[awsv1alpha1.SupportedServiceQuotas]string{
+		awsv1alpha1.VCPUQuotaCode: "ec2",
 	}
 
-	AccountPoolsQuotas, err := configMap.Data["quota.accountpool"]
-	if err != nil {
-		return err
-	}
-
-	processConfigMapAccountPoolsQuotas(AccountPoolsQuotas)
-
+	v, found := servicesMap[quotaCode]
+	return v, found
 }
 
-
-*/
 // getDesiredServiceQuotaValue retrieves the desired quota information from the operator configmap and converts it to a float64
 func (r *AccountReconciler) getDesiredServiceQuotaValue(reqLogger logr.Logger, quota string) (float64, error) {
 	var err error

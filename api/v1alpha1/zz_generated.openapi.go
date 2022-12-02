@@ -28,6 +28,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/openshift/aws-account-operator/api/v1alpha1.AccountPool":                     schema_openshift_aws_account_operator_api_v1alpha1_AccountPool(ref),
 		"github.com/openshift/aws-account-operator/api/v1alpha1.AccountPoolSpec":                 schema_openshift_aws_account_operator_api_v1alpha1_AccountPoolSpec(ref),
 		"github.com/openshift/aws-account-operator/api/v1alpha1.AccountPoolStatus":               schema_openshift_aws_account_operator_api_v1alpha1_AccountPoolStatus(ref),
+		"github.com/openshift/aws-account-operator/api/v1alpha1.AccountServiceQuota":             schema_openshift_aws_account_operator_api_v1alpha1_AccountServiceQuota(ref),
 		"github.com/openshift/aws-account-operator/api/v1alpha1.AccountSpec":                     schema_openshift_aws_account_operator_api_v1alpha1_AccountSpec(ref),
 		"github.com/openshift/aws-account-operator/api/v1alpha1.AccountStatus":                   schema_openshift_aws_account_operator_api_v1alpha1_AccountStatus(ref),
 	}
@@ -756,6 +757,33 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountPoolStatus(ref co
 	}
 }
 
+func schema_openshift_aws_account_operator_api_v1alpha1_AccountServiceQuota(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"quotaCode": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"value": {
+						SchemaProps: spec.SchemaProps{
+							Default: 0,
+							Type:    []string{"integer"},
+							Format:  "int32",
+						},
+					},
+				},
+				Required: []string{"quotaCode", "value"},
+			},
+		},
+	}
+}
+
 func schema_openshift_aws_account_operator_api_v1alpha1_AccountSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -814,12 +842,25 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountSpec(ref common.R
 							Format: "",
 						},
 					},
+					"serviceQuotas": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/openshift/aws-account-operator/api/v1alpha1.AccountServiceQuota"),
+									},
+								},
+							},
+						},
+					},
 				},
 				Required: []string{"awsAccountID", "iamUserSecret"},
 			},
 		},
 		Dependencies: []string{
-			"github.com/openshift/aws-account-operator/api/v1alpha1.LegalEntity"},
+			"github.com/openshift/aws-account-operator/api/v1alpha1.AccountServiceQuota", "github.com/openshift/aws-account-operator/api/v1alpha1.LegalEntity"},
 	}
 }
 

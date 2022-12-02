@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
+	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -20,6 +20,7 @@ import (
 	"github.com/openshift/aws-account-operator/controllers/account"
 	"github.com/openshift/aws-account-operator/pkg/totalaccountwatcher"
 	"github.com/openshift/aws-account-operator/pkg/utils"
+	"github.com/openshift/aws-account-operator/test/fixtures"
 )
 
 const (
@@ -112,56 +113,46 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 
 func (r *AccountPoolReconciler) handleServiceQuotas(account *awsv1alpha1.Account) error {
 
-	configMapServiceQuotas, err := r.parseConfigMapServiceQuotas(account.Spec.AccountPool)
+	cm, err := utils.GetOperatorConfigMap(r.Client)
+	if err != nil {
+		log.Error(err, "failed retrieving configmap")
+		return err
+	}
+
+	accountpoolString := cm.Data["accountpool"]
+
+	data := make(map[string]interface{})
+	err = yaml.Unmarshal([]byte(accountpoolString), &data)
+
 	if err != nil {
 		return err
 	}
 
-	if configMapServiceQuotas[account.Spec.AccountPool] == nil {
-		return nil
+	var parsedServiceQuotas []awsv1alpha1.AccountServiceQuota
+	if poolData, ok := data[account.Spec.AccountPool]; !ok {
+		return fixtures.NotFound
+	} else {
+		serviceMap, succeed := poolData.(map[string]string)
+		if !succeed {
+			return fixtures.NotFound
+		}
+
+		for quotaCode, quotaValue := range serviceMap {
+			qv, _ := strconv.Atoi(quotaValue)
+			parsedServiceQuotas = append(parsedServiceQuotas, awsv1alpha1.AccountServiceQuota{
+				QuotaCode: awsv1alpha1.SupportedServiceQuotas(quotaCode),
+				Value:     qv,
+			})
+		}
+
 	}
 
-	account.Spec.ServiceQuotas = configMapServiceQuotas[account.Spec.AccountPool]
+	account.Spec.ServiceQuotas = parsedServiceQuotas
 
 	return nil
 }
 
-func (r *AccountPoolReconciler) parseConfigMapServiceQuotas(poolName string) (map[string][]awsv1alpha1.AccountServiceQuota, error) {
-
-	cm, err := utils.GetOperatorConfigMap(r.Client)
-	if err != nil {
-		log.Error(err, "failed retrieving configmap")
-		return nil, err
-	}
-
-	accountpoolString := cm.Data["accountpool"]
-	accountpoolDelimited := strings.Split(accountpoolString, "\n")
-	var accountPoolName string
-	output := make(map[string][]awsv1alpha1.AccountServiceQuota)
-
-	for _, value := range accountpoolDelimited {
-		tempArr := strings.Split(value, ":")
-
-		if len(tempArr) == 2 {
-			accountPoolName = strings.ReplaceAll(tempArr[0], " ", "")
-		}
-
-		if len(tempArr) == 3 {
-			if accountPoolName == poolName {
-				sqType := awsv1alpha1.SupportedServiceQuotas(strings.ReplaceAll(tempArr[1], " ", ""))
-				value, err := strconv.ParseFloat(tempArr[2], 64)
-
-				if err != nil {
-					return nil, err
-				}
-
-				output[accountPoolName] = append(output[accountPoolName], awsv1alpha1.AccountServiceQuota{
-					Type:  sqType,
-					Value: value,
-				})
-			}
-		}
-	}
+func (r *AccountPoolReconciler) parseConfigMapServiceQuotas(poolName string) ([]awsv1alpha1.AccountServiceQuota, error) {
 
 	return output, nil
 }

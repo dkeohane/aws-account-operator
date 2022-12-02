@@ -78,6 +78,21 @@ spec:
                 type: object
               manualSTSMode:
                 type: boolean
+              serviceQuotas:
+                items:
+                  properties:
+                    quotaCode:
+                      enum:
+                      - Default
+                      - Hypershift
+                      type: string
+                    value:
+                      type: integer
+                  required:
+                  - quotaCode
+                  - value
+                  type: object
+                type: array
             required:
             - awsAccountID
             - iamUserSecret

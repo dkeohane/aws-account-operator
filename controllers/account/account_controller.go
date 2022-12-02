@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -536,15 +537,36 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 	if resolved {
 		reqLogger.Info("case resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
 
-		// DO MY STUFF HERE
+		go r.asyncHandleServiceQuotaRequests(reqLogger, awsSetupClient, currentAcctInstance)
 
-		utils.SetAccountStatus(currentAcctInstance, "Account ready to be claimed", awsv1alpha1.AccountReady, AccountReady)
+		if currentAcctInstance.GetCondition(awsv1alpha1.AccountQuotaIncreaseCompleted) != nil {
+			msg := "Account service quotas have been resolved; Account Ready"
+			utils.SetAccountStatus(currentAcctInstance, msg, awsv1alpha1.AccountReady, AccountReady)
+			reqLogger.Info(msg)
+		} else {
+			msg := "Account pending AWS service quota validation"
+			utils.SetAccountStatus(currentAcctInstance, msg, awsv1alpha1.AccountPendingVerification, AccountPendingVerification)
+			reqLogger.Info(msg)
+		}
+
 		return reconcile.Result{}, r.statusUpdate(currentAcctInstance)
 	}
 
 	// Case not Resolved, log info and try again in pre-defined interval
 	reqLogger.Info("case not yet resolved, retrying", "caseID", currentAcctInstance.Status.SupportCaseID, "retry delay", intervalBetweenChecksMinutes)
 	return reconcile.Result{RequeueAfter: intervalBetweenChecksMinutes * time.Minute}, nil
+}
+
+func (r *AccountReconciler) asyncHandleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, currentAcctInstance *awsv1alpha1.Account) {
+	// DO MY STUFF HERE
+	var wg sync.WaitGroup
+	wg.Add(len(currentAcctInstance.Spec.ServiceQuotas))
+
+	for _, serviceQuota := range currentAcctInstance.Spec.ServiceQuotas {
+		go r.handleServiceQuotaRequests(reqLogger, awsClient, serviceQuota, &wg) // Correct client?
+	}
+	wg.Wait()
+	utils.SetAccountStatus(currentAcctInstance, "Account service quotas have been resolved", awsv1alpha1.AccountQuotaIncreaseCompleted, AccountPendingVerification)
 }
 
 func (r *AccountReconciler) finalizeAccount(reqLogger logr.Logger, awsClient awsclient.Client, account *awsv1alpha1.Account) {

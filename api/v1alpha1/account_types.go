@@ -46,16 +46,16 @@ type AccountSpec struct {
 // +k8s:openapi-gen=true
 type AccountServiceQuota struct {
 	// +kubebuilder:validation:Enum=Default;Hypershift
-	Type SupportedServiceQuotas `json:"type"`
+	QuotaCode SupportedServiceQuotas `json:"quotaCode"`
 
-	Value float64 `json:"value"`
+	Value int `json:"value"`
 }
 
 type SupportedServiceQuotas string
 
 const (
-	sq1 SupportedServiceQuotas = "Default"
-	sq2 SupportedServiceQuotas = "Hypershift" // TODO service-qouta-limited
+	VCPUQuotaCode SupportedServiceQuotas = "L-1216C47A"
+	sq2           SupportedServiceQuotas = "Hypershift" // TODO service-qouta-limited
 )
 
 // AccountStatus defines the observed state of Account
@@ -127,8 +127,8 @@ const (
 	// AccountInitializingRegions indicates we've kicked off the process of creating and terminating
 	// instances in all supported regions
 	AccountInitializingRegions = "InitializingRegions"
-	// AccountQuotaIncreaseRequested is set when a quota increase has been requested
-	AccountQuotaIncreaseRequested AccountConditionType = "QuotaIncreaseRequested"
+	// AccountQuotaIncreaseCompleted is set when all quota increases for an account have been completed
+	AccountQuotaIncreaseCompleted AccountConditionType = "QuotaIncreaseCompleted"
 )
 
 // +genclient
