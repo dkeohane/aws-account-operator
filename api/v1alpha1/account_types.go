@@ -46,9 +46,10 @@ type AccountSpec struct {
 // +k8s:openapi-gen=true
 type AccountServiceQuota struct {
 	// +kubebuilder:validation:Enum=Default;Hypershift
-	QuotaCode SupportedServiceQuotas `json:"quotaCode"`
-
-	Value int `json:"value"`
+	QuotaCode    SupportedServiceQuotas `json:"quotaCode"`
+	Value        int                    `json:"value"`
+	Completed    bool                   `json:"completed,omitempty"`
+	CreationTime metav1.Time            `json:"creationTime,omitempty"`
 }
 
 type SupportedServiceQuotas string
@@ -64,11 +65,12 @@ type AccountStatus struct {
 	Claimed       bool   `json:"claimed,omitempty"`
 	SupportCaseID string `json:"supportCaseID,omitempty"`
 	// +optional
-	Conditions               []AccountCondition `json:"conditions,omitempty"`
-	State                    string             `json:"state,omitempty"`
-	RotateCredentials        bool               `json:"rotateCredentials,omitempty"`
-	RotateConsoleCredentials bool               `json:"rotateConsoleCredentials,omitempty"`
-	Reused                   bool               `json:"reused,omitempty"`
+	Conditions               []AccountCondition    `json:"conditions,omitempty"`
+	State                    string                `json:"state,omitempty"`
+	RotateCredentials        bool                  `json:"rotateCredentials,omitempty"`
+	RotateConsoleCredentials bool                  `json:"rotateConsoleCredentials,omitempty"`
+	Reused                   bool                  `json:"reused,omitempty"`
+	QuotaIncreaseRequests    []AccountServiceQuota `json:"quotaIncreaseRequests,omitempty"`
 }
 
 // AccountCondition contains details for the current condition of a AWS account
@@ -192,6 +194,26 @@ func (a *Account) HasState() bool {
 //HasSupportCaseID returns true if an account has a SupportCaseID Set
 func (a *Account) HasSupportCaseID() bool {
 	return a.Status.SupportCaseID != ""
+}
+
+//HasOpenQuotaIncreaseRequests returns true if an account has any open quota increase requests
+func (a *Account) HasOpenQuotaIncreaseRequests() bool {
+	for _, v := range a.Status.QuotaIncreaseRequests {
+		if !v.Completed {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Account) GetOpenQuotaIncreaseRequests() []AccountServiceQuota {
+	var returnQuotaIncreaseRequest []AccountServiceQuota
+	for _, v := range a.Status.QuotaIncreaseRequests {
+		if !v.Completed {
+			returnQuotaIncreaseRequest = append(returnQuotaIncreaseRequest, v)
+		}
+	}
+	return returnQuotaIncreaseRequest
 }
 
 //IsPendingVerification returns true if the account is in a PendingVerification state

@@ -152,11 +152,6 @@ func (r *AccountPoolReconciler) handleServiceQuotas(account *awsv1alpha1.Account
 	return nil
 }
 
-func (r *AccountPoolReconciler) parseConfigMapServiceQuotas(poolName string) ([]awsv1alpha1.AccountServiceQuota, error) {
-
-	return output, nil
-}
-
 // Calculates the unclaimedAccountCount and Claimed Account Counts
 func (r *AccountPoolReconciler) calculateAccountPoolStatus(poolName string) (awsv1alpha1.AccountPoolStatus, error) {
 	unclaimedAccountCount := 0

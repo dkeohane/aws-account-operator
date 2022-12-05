@@ -3,7 +3,6 @@ package account
 import (
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	retry "github.com/avast/retry-go"
@@ -32,18 +31,18 @@ const (
 	vCPUServiceCode = "ec2"
 )
 
-func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, serviceQuota awsv1alpha1.AccountServiceQuota, wg *sync.WaitGroup) error {
-
-	defer wg.Done()
+func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, serviceQuota *awsv1alpha1.AccountServiceQuota) error {
 
 	serviceCode, found := getServiceCode(serviceQuota.QuotaCode)
 	if !found {
 		reqLogger.Error(fixtures.NotFound, "Cannot find service code for QuotaCode", "QuotaCode", string(serviceQuota.QuotaCode))
+		return fixtures.NotFound
 	}
 
 	quotaIncreaseRequired, err := serviceQuotaNeedsIncrease(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 	if err != nil {
 		reqLogger.Error(err, "failed retrieving current vCPU quota from AWS")
+		return err
 	}
 
 	if quotaIncreaseRequired {
@@ -51,6 +50,7 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, aw
 		caseID, err := checkQuotaRequestHistory(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 		if err != nil {
 			reqLogger.Error(err, "failed retrieving quota change history")
+			return err
 		}
 
 		// If a Case ID was found, log it - the request was already submitted
@@ -78,7 +78,7 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, aw
 			// reqLogger.Info("quota increase request submitted successfully", "region", region, "caseID", caseID)
 		}
 	} else {
-		wg.Done()
+		serviceQuota.Completed = true
 	}
 	return nil
 }
@@ -328,7 +328,7 @@ func checkQuotaRequestHistory(awsClient awsclient.Client, quotaCode string, serv
 		// Check all the returned requests to see if one matches the quota increase we'd request
 		// If so, it's already been submitted
 		for _, change := range result.RequestedQuotas {
-			if changeRequestMatches(change, quotaCode, serviceCode, expectedQuota) { // TODO change to param
+			if changeRequestMatches(change, quotaCode, serviceCode, expectedQuota) {
 				submitted = true
 				caseID = *change.CaseId
 				break

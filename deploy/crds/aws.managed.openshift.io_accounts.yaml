@@ -81,6 +81,11 @@ spec:
               serviceQuotas:
                 items:
                   properties:
+                    completed:
+                      type: boolean
+                    creationTime:
+                      format: date-time
+                      type: string
                     quotaCode:
                       enum:
                       - Default
@@ -130,6 +135,26 @@ spec:
                     type:
                       description: Type is the type of the condition.
                       type: string
+                  type: object
+                type: array
+              quotaIncreaseRequests:
+                items:
+                  properties:
+                    completed:
+                      type: boolean
+                    creationTime:
+                      format: date-time
+                      type: string
+                    quotaCode:
+                      enum:
+                      - Default
+                      - Hypershift
+                      type: string
+                    value:
+                      type: integer
+                  required:
+                  - quotaCode
+                  - value
                   type: object
                 type: array
               reused:

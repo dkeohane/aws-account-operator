@@ -777,10 +777,24 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountServiceQuota(ref 
 							Format:  "int32",
 						},
 					},
+					"completed": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"boolean"},
+							Format: "",
+						},
+					},
+					"creationTime": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
 				},
 				Required: []string{"quotaCode", "value"},
 			},
 		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
 	}
 }
 
@@ -920,10 +934,23 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountStatus(ref common
 							Format: "",
 						},
 					},
+					"quotaIncreaseRequests": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/openshift/aws-account-operator/api/v1alpha1.AccountServiceQuota"),
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"github.com/openshift/aws-account-operator/api/v1alpha1.AccountCondition"},
+			"github.com/openshift/aws-account-operator/api/v1alpha1.AccountCondition", "github.com/openshift/aws-account-operator/api/v1alpha1.AccountServiceQuota"},
 	}
 }
