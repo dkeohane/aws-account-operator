@@ -483,6 +483,7 @@ func (r *AccountReconciler) handleAccountInitializingRegions(reqLogger logr.Logg
 
 // TODO Add service quota validation here
 func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logger, currentAcctInstance *awsv1alpha1.Account, awsSetupClient awsclient.Client) (reconcile.Result, error) {
+	requeueDueToInitialSetup := false
 	// If the supportCaseID is blank and Account State = PendingVerification, create a case
 	if !currentAcctInstance.HasSupportCaseID() {
 		switch utils.DetectDevMode {
@@ -501,24 +502,33 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 				reqLogger.Error(err, "failed to update account state, retrying", "desired state", AccountPendingVerification)
 				return reconcile.Result{}, err
 			}
-
-			// After creating the support case requeue the request. To avoid flooding and being blacklisted by AWS when
-			// starting the operator with a large AccountPool, add a randomInterval (between 0 and 30 secs) to the regular wait time
-			randomInterval, err := strconv.Atoi(currentAcctInstance.Spec.AwsAccountID)
-			if err != nil {
-				reqLogger.Error(err, "failed converting AwsAccountID string to int")
-				return reconcile.Result{}, err
-			}
-			randomInterval %= 30
-
-			// This will requeue verification for between 30 and 60 (30+30) seconds, depending on the account
-			return reconcile.Result{RequeueAfter: time.Duration(intervalAfterCaseCreationSecs+randomInterval) * time.Second}, nil
+			requeueDueToInitialSetup = true
 		default:
 			log.Info("Running in development mode, Skipping Support Case Creation.")
 		}
 	}
 
-	var resolved bool
+	// we should open the initial quota increases here if they're not already opened.
+	// and then set requeueDueToInitialSetup to true
+
+
+	if requeueDueToInitialSetup {
+		// After creating the support case or increasing quotas requeue the request. To avoid flooding
+		// and being blacklisted by AWS when starting the operator with a large AccountPool, add a
+		// randomInterval (between 0 and 30 secs) to the regular wait time
+		randomInterval, err := strconv.Atoi(currentAcctInstance.Spec.AwsAccountID)
+		if err != nil {
+			reqLogger.Error(err, "failed converting AwsAccountID string to int")
+			return reconcile.Result{}, err
+		}
+		randomInterval %= 30
+
+		// This will requeue verification for between 30 and 60 (30+30) seconds, depending on the account
+		return reconcile.Result{RequeueAfter: time.Duration(intervalAfterCaseCreationSecs+randomInterval) * time.Second}, nil
+
+	}
+
+	var supportCaseResolved bool
 
 	switch utils.DetectDevMode {
 	case utils.DevModeProduction:
@@ -527,47 +537,70 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 			reqLogger.Error(err, "Error checking for Case Resolution")
 			return reconcile.Result{}, err
 		}
-		resolved = resolvedScoped
+		supportCaseResolved = resolvedScoped
 	default:
 		log.Info("Running in development mode, Skipping case resolution check")
-		resolved = true
+		supportCaseResolved = true
+	}
+	
+
+	// Check for any open quota increases - this will require adding a method to currentAcctInstance to look for
+	// open quota requests.  I'm thinking we could do like, a list in the status struct of the Account, so it would
+	// be like `currentAcctInstance.Status.OpenQuotaRequests = []string`
+	if !currentAcctInstance.HasOpenQuotaIncreaseRequests() {
+		switch utils.DetectDevMode {
+		case utils.DevModeProduction:
+			var stillOpenQuotaIncreaseRequests []string
+			openQuotaIncreaseRequests = currentAcctInstance.GetOpenQuotaIncreaseRequests()
+			// for each open quota increase request, check it.
+			for i := range(openQuotaIncreaseRequests) {
+				if !isServiceRequestIsFulfilled(openQuotaIncreaseRequests[i]) {
+					// if the quota request is still open, put it into the new openQuotaIncreaseRequests list
+					// otherwise we'll drop it from the list and not continue to check it.
+					stillOpenQuotaIncreaseRequests = append(stillOpenQuotaIncreaseRequests, "whatever-identifier-from-aws-we-can-use-to-query")
+				}
+			}
+
+			// if the list is different from the last time we looked at this, update it.
+			// TODO - Can we do another status update here after doing it in line 501?
+			// but the end goal is to get the status.OpenQuotaRequests field to be an empty list
+			// and as they resolve we want to remove them from the list
+			if len(openQuotaIncreaseRequests) != len(stillOpenQuotaIncreaseRequests) {
+				currentAcctInstance.Status.OpenQuotaRequests = stillOpenQuotaIncreaseRequests
+				//TODO - how do we do this again?
+				currentAcctInstance.Update()
+			}
 	}
 
-	// Case Resolved, account is Ready
-	if resolved {
+
+	// Case Resolved and quota increases are all done: account is Ready
+	if resolved && len(stillOpenQuotaIncreaseRequests) == 0 {
 		reqLogger.Info("case resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
-
-		go r.asyncHandleServiceQuotaRequests(reqLogger, awsSetupClient, currentAcctInstance)
-
-		if currentAcctInstance.GetCondition(awsv1alpha1.AccountQuotaIncreaseCompleted) != nil {
-			msg := "Account service quotas have been resolved; Account Ready"
-			utils.SetAccountStatus(currentAcctInstance, msg, awsv1alpha1.AccountReady, AccountReady)
-			reqLogger.Info(msg)
-		} else {
-			msg := "Account pending AWS service quota validation"
-			utils.SetAccountStatus(currentAcctInstance, msg, awsv1alpha1.AccountPendingVerification, AccountPendingVerification)
-			reqLogger.Info(msg)
-		}
-
 		return reconcile.Result{}, r.statusUpdate(currentAcctInstance)
 	}
 
 	// Case not Resolved, log info and try again in pre-defined interval
-	reqLogger.Info("case not yet resolved, retrying", "caseID", currentAcctInstance.Status.SupportCaseID, "retry delay", intervalBetweenChecksMinutes)
+	if !resolved {
+		reqLogger.Info("case not yet resolved, retrying", "caseID", currentAcctInstance.Status.SupportCaseID, "retry delay", intervalBetweenChecksMinutes)
+	}
+	if len(stillOpenQuotaIncreaseRequests) != 0 {
+		reqLogger.Info("quota increase requests not yet resolved, retrying", "retry duration", intervalBetweenChecksMinutes)
+	}
+
 	return reconcile.Result{RequeueAfter: intervalBetweenChecksMinutes * time.Minute}, nil
 }
 
-func (r *AccountReconciler) asyncHandleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, currentAcctInstance *awsv1alpha1.Account) {
-	// DO MY STUFF HERE
-	var wg sync.WaitGroup
-	wg.Add(len(currentAcctInstance.Spec.ServiceQuotas))
-
-	for _, serviceQuota := range currentAcctInstance.Spec.ServiceQuotas {
-		go r.handleServiceQuotaRequests(reqLogger, awsClient, serviceQuota, &wg) // Correct client?
-	}
-	wg.Wait()
-	utils.SetAccountStatus(currentAcctInstance, "Account service quotas have been resolved", awsv1alpha1.AccountQuotaIncreaseCompleted, AccountPendingVerification)
-}
+// func (r *AccountReconciler) asyncHandleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, currentAcctInstance *awsv1alpha1.Account) {
+// 	// DO MY STUFF HERE
+// 	var wg sync.WaitGroup
+// 	wg.Add(len(currentAcctInstance.Spec.ServiceQuotas))
+// 
+// 	for _, serviceQuota := range currentAcctInstance.Spec.ServiceQuotas {
+// 		go r.handleServiceQuotaRequests(reqLogger, awsClient, serviceQuota, &wg) // Correct client?
+// 	}
+// 	wg.Wait()
+// 	utils.SetAccountStatus(currentAcctInstance, "Account service quotas have been resolved", awsv1alpha1.AccountQuotaIncreaseCompleted, AccountPendingVerification)
+// }
 
 func (r *AccountReconciler) finalizeAccount(reqLogger logr.Logger, awsClient awsclient.Client, account *awsv1alpha1.Account) {
 	reqLogger.Info("Finalizing Account CR")
