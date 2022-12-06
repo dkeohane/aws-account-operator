@@ -682,15 +682,8 @@ func schema_openshift_aws_account_operator_api_v1alpha1_AccountPoolSpec(ref comm
 							Format:  "int32",
 						},
 					},
-					"poolType": {
-						SchemaProps: spec.SchemaProps{
-							Default: "",
-							Type:    []string{"string"},
-							Format:  "",
-						},
-					},
 				},
-				Required: []string{"poolSize", "poolType"},
+				Required: []string{"poolSize"},
 			},
 		},
 	}

@@ -45,7 +45,7 @@ type AccountSpec struct {
 //
 // +k8s:openapi-gen=true
 type AccountServiceQuota struct {
-	// +kubebuilder:validation:Enum=Default;Hypershift
+	// +kubebuilder:validation:Enum=L-1216C47A
 	QuotaCode    SupportedServiceQuotas `json:"quotaCode"`
 	Value        int                    `json:"value"`
 	Completed    bool                   `json:"completed,omitempty"`
@@ -56,7 +56,6 @@ type SupportedServiceQuotas string
 
 const (
 	VCPUQuotaCode SupportedServiceQuotas = "L-1216C47A"
-	sq2           SupportedServiceQuotas = "Hypershift" // TODO service-qouta-limited
 )
 
 // AccountStatus defines the observed state of Account
@@ -206,11 +205,11 @@ func (a *Account) HasOpenQuotaIncreaseRequests() bool {
 	return false
 }
 
-func (a *Account) GetOpenQuotaIncreaseRequests() []AccountServiceQuota {
-	var returnQuotaIncreaseRequest []AccountServiceQuota
+func (a *Account) GetOpenQuotaIncreaseRequestsRef() []*AccountServiceQuota {
+	var returnQuotaIncreaseRequest []*AccountServiceQuota
 	for _, v := range a.Status.QuotaIncreaseRequests {
 		if !v.Completed {
-			returnQuotaIncreaseRequest = append(returnQuotaIncreaseRequest, v)
+			returnQuotaIncreaseRequest = append(returnQuotaIncreaseRequest, &v)
 		}
 	}
 	return returnQuotaIncreaseRequest

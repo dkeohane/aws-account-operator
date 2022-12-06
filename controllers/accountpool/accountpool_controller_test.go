@@ -257,6 +257,7 @@ func TestReconcileAccountPool(t *testing.T) {
 	}
 }
 
+/*
 func TestHSPool(t *testing.T) {
 	err := awsaccountapis.AddToScheme(scheme.Scheme)
 	if err != nil {
@@ -383,7 +384,7 @@ func getAccountPoolAccounts(c client.Client, poolName string, namespace string) 
 	}
 	return poolAL, err
 }
-
+*/
 func verifyAccountPool(c client.Client, expected *awsv1alpha1.AccountPool) bool {
 
 	ap := awsv1alpha1.AccountPool{}

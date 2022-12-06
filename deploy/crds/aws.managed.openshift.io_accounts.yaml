@@ -88,8 +88,7 @@ spec:
                       type: string
                     quotaCode:
                       enum:
-                      - Default
-                      - Hypershift
+                      - L-1216C47A
                       type: string
                     value:
                       type: integer
@@ -147,8 +146,7 @@ spec:
                       type: string
                     quotaCode:
                       enum:
-                      - Default
-                      - Hypershift
+                      - L-1216C47A
                       type: string
                     value:
                       type: integer

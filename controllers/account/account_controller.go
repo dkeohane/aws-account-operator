@@ -543,19 +543,23 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 	if !currentAcctInstance.HasOpenQuotaIncreaseRequests() {
 		switch utils.DetectDevMode {
 		case utils.DevModeProduction:
-			openQuotaIncreaseRequests := currentAcctInstance.GetOpenQuotaIncreaseRequests()
+			openQuotaIncreaseRequestRefs := currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()
+			reqCount := len(openQuotaIncreaseRequestRefs)
+
 			// for each open quota increase request, check it.
-			for i := range openQuotaIncreaseRequests {
-				r.handleServiceQuotaRequests(reqLogger, awsSetupClient, &openQuotaIncreaseRequests[i])
+			for i := range openQuotaIncreaseRequestRefs {
+				r.handleServiceQuotaRequests(reqLogger, awsSetupClient, openQuotaIncreaseRequestRefs[i])
 			}
-			if len(openQuotaIncreaseRequests) != len(currentAcctInstance.GetOpenQuotaIncreaseRequests()) {
+
+			// If the number of open reqs has changed then we need to update the Account CR Status
+			if reqCount != len(currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()) {
 				r.statusUpdate(currentAcctInstance)
 			}
 		}
 	}
 
 	// Case Resolved and quota increases are all done: account is Ready
-	if supportCaseResolved && len(currentAcctInstance.GetOpenQuotaIncreaseRequests()) == 0 {
+	if supportCaseResolved && len(currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()) == 0 {
 		reqLogger.Info("case resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
 		return reconcile.Result{}, nil
 	}

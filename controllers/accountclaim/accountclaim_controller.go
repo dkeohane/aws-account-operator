@@ -11,6 +11,8 @@ import (
 	"github.com/openshift/aws-account-operator/pkg/awsclient"
 	"github.com/openshift/aws-account-operator/pkg/localmetrics"
 	controllerutils "github.com/openshift/aws-account-operator/pkg/utils"
+	"github.com/openshift/aws-account-operator/test/fixtures"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -439,6 +441,8 @@ func (r *AccountClaimReconciler) getUnclaimedAccount(reqLogger logr.Logger, acco
 			}
 		}
 	} else {
+		// Otherwise we'll want to get an account from the default account pool ONLY, so we need to filter out
+		// the non-default-accountpool accounts
 		defaultAccountPoolName, err := r.getDefaultAccountPoolName()
 
 		if err != nil {
@@ -490,18 +494,34 @@ func checkClaimAccountValidity(reqLogger logr.Logger, account awsv1alpha1.Accoun
 }
 
 func (r *AccountClaimReconciler) getDefaultAccountPoolName() (string, error) {
-	accountPoolList := &awsv1alpha1.AccountPoolList{}
-	err := r.Client.List(context.TODO(), accountPoolList, client.InNamespace(awsv1alpha1.AccountCrNamespace))
+
+	cm, err := controllerutils.GetOperatorConfigMap(r.Client)
+	if err != nil {
+		log.Error(err, "failed retrieving configmap")
+		return "", err
+	}
+
+	accountpoolString := cm.Data["accountpool"]
+
+	type AccountPool struct {
+		IsDefault     bool              `yaml:"default,omitempty"`
+		Servicequotas map[string]string `yaml:"servicequotas"`
+	}
+
+	data := make(map[string]AccountPool)
+	err = yaml.Unmarshal([]byte(accountpoolString), &data)
+
 	if err != nil {
 		return "", err
 	}
 
-	for _, accountPool := range accountPoolList.Items {
-		if accountPool.Spec.PoolType == awsv1alpha1.DefaultPoolType {
-			return accountPool.Name, nil
+	for poolName, poolData := range data {
+		if poolData.IsDefault {
+			return poolName, nil
 		}
 	}
-	return "", nil
+
+	return "", fixtures.NotFound
 }
 
 func (r *AccountClaimReconciler) createIAMSecret(reqLogger logr.Logger, accountClaim *awsv1alpha1.AccountClaim, unclaimedAccount *awsv1alpha1.Account) error {
@@ -542,10 +562,7 @@ func (r *AccountClaimReconciler) checkIAMSecretExists(name string, namespace str
 	secretObjectKey := client.ObjectKey{Name: name, Namespace: namespace}
 	err := r.Client.Get(context.TODO(), secretObjectKey, &secret)
 	//nolint:gosimple // Ignores false-positive S1008 gosimple notice
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 func (r *AccountClaimReconciler) statusUpdate(reqLogger logr.Logger, accountClaim *awsv1alpha1.AccountClaim) error {

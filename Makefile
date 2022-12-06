@@ -278,7 +278,7 @@ predeploy-aws-account-operator: ## Predeploy AWS Account Operator
 	# Create zero size account pool
 	@oc process --local -p NAME="zero-size-accountpool" -p SIZE=0 -p TYPE="Default" -f hack/templates/aws.managed.openshift.io_v1alpha1_accountpool.tmpl | oc apply -f -	
 	# Create zero size account pool
-	@oc process --local -p NAME="hs-zero-size-accountpool" -p SIZE=0 -p TYPE="Hypershift" -f hack/templates/aws.managed.openshift.io_v1alpha1_accountpool.tmpl | oc apply -f -
+	@oc process --local -p NAME="hs-zero-size-accountpool" -p SIZE=1 -p TYPE="Hypershift" -f hack/templates/aws.managed.openshift.io_v1alpha1_accountpool.tmpl | oc apply -f -
 
 .PHONY: validate-deployment
 validate-deployment: check-aws-account-id-env check-sts-setup ## Validates deployment configuration

@@ -16,6 +16,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/go-logr/logr"
 	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
 	"github.com/openshift/aws-account-operator/controllers/account"
 	"github.com/openshift/aws-account-operator/pkg/totalaccountwatcher"
@@ -98,7 +99,7 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 		return reconcile.Result{}, err
 	}
 
-	if err = r.handleServiceQuotas(newAccount); err != nil {
+	if err = r.handleServiceQuotas(reqLogger, newAccount); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -111,7 +112,8 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 	return reconcile.Result{}, nil
 }
 
-func (r *AccountPoolReconciler) handleServiceQuotas(account *awsv1alpha1.Account) error {
+func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, account *awsv1alpha1.Account) error {
+	reqLogger.Info("handleServiceQuotas")
 
 	cm, err := utils.GetOperatorConfigMap(r.Client)
 	if err != nil {
@@ -121,7 +123,12 @@ func (r *AccountPoolReconciler) handleServiceQuotas(account *awsv1alpha1.Account
 
 	accountpoolString := cm.Data["accountpool"]
 
-	data := make(map[string]interface{})
+	type AccountPool struct {
+		IsDefault     bool              `yaml:"default,omitempty"`
+		Servicequotas map[string]string `yaml:"servicequotas"`
+	}
+
+	data := make(map[string]AccountPool)
 	err = yaml.Unmarshal([]byte(accountpoolString), &data)
 
 	if err != nil {
@@ -130,14 +137,10 @@ func (r *AccountPoolReconciler) handleServiceQuotas(account *awsv1alpha1.Account
 
 	var parsedServiceQuotas []awsv1alpha1.AccountServiceQuota
 	if poolData, ok := data[account.Spec.AccountPool]; !ok {
+		reqLogger.Error(fixtures.NotFound, "Accountpool not found")
 		return fixtures.NotFound
 	} else {
-		serviceMap, succeed := poolData.(map[string]string)
-		if !succeed {
-			return fixtures.NotFound
-		}
-
-		for quotaCode, quotaValue := range serviceMap {
+		for quotaCode, quotaValue := range poolData.Servicequotas {
 			qv, _ := strconv.Atoi(quotaValue)
 			parsedServiceQuotas = append(parsedServiceQuotas, awsv1alpha1.AccountServiceQuota{
 				QuotaCode: awsv1alpha1.SupportedServiceQuotas(quotaCode),
@@ -175,6 +178,7 @@ func (r *AccountPoolReconciler) calculateAccountPoolStatus(poolName string) (aws
 			continue
 		}
 
+		// If an accountpool name is specified, we want to count ONLY that pool
 		if poolName != "" {
 			if account.Spec.AccountPool != poolName {
 				continue

@@ -7,20 +7,10 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type AccountPoolType string
-
-const (
-	DefaultPoolType    AccountPoolType = "Default"
-	HypershiftPoolType AccountPoolType = "Hypershift" // TODO service-qouta-limited
-)
-
 // AccountPoolSpec defines the desired state of AccountPool
 // +k8s:openapi-gen=true
 type AccountPoolSpec struct {
 	PoolSize int `json:"poolSize"`
-
-	// +kubebuilder:validation:Enum=Default;Hypershift
-	PoolType AccountPoolType `json:"poolType"`
 }
 
 // AccountPoolStatus defines the observed state of AccountPool

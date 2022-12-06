@@ -62,14 +62,8 @@ spec:
             properties:
               poolSize:
                 type: integer
-              poolType:
-                enum:
-                - Default
-                - Hypershift
-                type: string
             required:
             - poolSize
-            - poolType
             type: object
           status:
             description: AccountPoolStatus defines the observed state of AccountPool
