@@ -113,11 +113,11 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 }
 
 func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, account *awsv1alpha1.Account) error {
-	reqLogger.Info("handleServiceQuotas")
+	reqLogger.Info("Loading Service Quotas")
 
 	cm, err := utils.GetOperatorConfigMap(r.Client)
 	if err != nil {
-		log.Error(err, "failed retrieving configmap")
+		reqLogger.Error(err, "failed retrieving configmap")
 		return err
 	}
 
@@ -132,6 +132,7 @@ func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, accou
 	err = yaml.Unmarshal([]byte(accountpoolString), &data)
 
 	if err != nil {
+		reqLogger.Error(err, "Failed to unmarshal yaml")
 		return err
 	}
 
@@ -149,6 +150,7 @@ func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, accou
 		}
 
 	}
+	reqLogger.Info("Loaded Service Quotas")
 
 	account.Spec.ServiceQuotas = parsedServiceQuotas
 

@@ -58,6 +58,12 @@ const (
 	VCPUQuotaCode SupportedServiceQuotas = "L-1216C47A"
 )
 
+type SupportedServiceQuotaServices string
+
+const (
+	VCPUServiceCode SupportedServiceQuotaServices = "ec2"
+)
+
 // AccountStatus defines the observed state of Account
 // +k8s:openapi-gen=true
 type AccountStatus struct {

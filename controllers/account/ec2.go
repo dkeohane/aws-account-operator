@@ -164,7 +164,7 @@ func (r *AccountReconciler) InitializeRegion(
 		// Check if a request is necessary
 		// If there are errors, this will return false, and will not continue to try
 		// to set the quota
-		quotaIncreaseRequired, err = serviceQuotaNeedsIncrease(awsClient, vCPUQuotaCode, vCPUServiceCode, vCPUQuota)
+		quotaIncreaseRequired, err = serviceQuotaNeedsIncrease(awsClient, string(awsv1alpha1.VCPUQuotaCode), string(awsv1alpha1.VCPUServiceCode), vCPUQuota)
 		if err != nil {
 			reqLogger.Error(err, "failed retrieving current vCPU quota from AWS")
 		}
@@ -172,7 +172,7 @@ func (r *AccountReconciler) InitializeRegion(
 
 	if quotaIncreaseRequired {
 		reqLogger.Info("vCPU quota increase required", "region", region)
-		caseID, err = checkQuotaRequestHistory(awsClient, vCPUQuotaCode, vCPUServiceCode, vCPUQuota)
+		caseID, err = checkQuotaRequestHistory(awsClient, string(awsv1alpha1.VCPUQuotaCode), string(awsv1alpha1.VCPUServiceCode), vCPUQuota)
 		if err != nil {
 			reqLogger.Error(err, "failed retrieving quota change history")
 		}
@@ -187,7 +187,7 @@ func (r *AccountReconciler) InitializeRegion(
 		// then request a quota increase
 		if caseID == "" && err == nil {
 			reqLogger.Info("submitting vCPU quota increase request", "region", region)
-			caseID, err = setServiceQuota(awsClient, vCPUQuotaCode, vCPUServiceCode, vCPUQuota)
+			caseID, err = setServiceQuota(awsClient, string(awsv1alpha1.VCPUQuotaCode), string(awsv1alpha1.VCPUServiceCode), vCPUQuota)
 			if err != nil {
 				reqLogger.Error(err, "failed requesting vCPU quota increase")
 			}

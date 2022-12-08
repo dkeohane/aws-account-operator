@@ -17,25 +17,22 @@ import (
 )
 
 const (
-	/*
-	   limits required are in this accepted adr's "how" section: SD-ADR-0075: OSD Fleet Manager AWS Account Management
-	   L-1216C47A → 750 // Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances
-	   L-69A177A2 → 255 // Network Load Balancers per Region
-	   L-0EA8095F → 200 // Inbound or outbound rules per security group
+/*
+   limits required are in this accepted adr's "how" section: SD-ADR-0075: OSD Fleet Manager AWS Account Management
+   L-1216C47A → 750 // Running On-Demand Standard (A, C, D, H, I, M, R, T, Z) instances
+   L-69A177A2 → 255 // Network Load Balancers per Region
+   L-0EA8095F → 200 // Inbound or outbound rules per security group
 
-	*/
+*/
 
-	// vCPUQuotaCode
-	vCPUQuotaCode = "L-1216C47A"
-	// vCPUServiceCode
-	vCPUServiceCode = "ec2"
 )
 
-func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, serviceQuota *awsv1alpha1.AccountServiceQuota) error {
+func (r *AccountReconciler) HandleServiceQuotaRequests(reqLogger logr.Logger, awsClient awsclient.Client, serviceQuota *awsv1alpha1.AccountServiceQuota) error {
 
+	reqLogger.Info("Handling ServiceQuota Requests")
 	serviceCode, found := getServiceCode(serviceQuota.QuotaCode)
 	if !found {
-		reqLogger.Error(fixtures.NotFound, "Cannot find service code for QuotaCode", "QuotaCode", string(serviceQuota.QuotaCode))
+		reqLogger.Error(fixtures.NotFound, "cannot find corresponding ServiceCode for QuotaCode", "QuotaCode", string(serviceQuota.QuotaCode))
 		return fixtures.NotFound
 	}
 
@@ -46,10 +43,13 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, aw
 	}
 
 	if quotaIncreaseRequired {
-		reqLogger.Info("Quota Increase required for ..... ") // TODO improve
+		reqLogger.Info(
+			fmt.Sprintf("Quota Increase required for QuotaCode [%s] ServiceCode [%s] Requested Value [%d]",
+				string(serviceQuota.QuotaCode), serviceCode, serviceQuota.Value),
+		)
 		caseID, err := checkQuotaRequestHistory(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 		if err != nil {
-			reqLogger.Error(err, "failed retrieving quota change history")
+			reqLogger.Error(err, "failed to get quota change history")
 			return err
 		}
 
@@ -62,8 +62,7 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, aw
 		// and there were no errors trying to retrieve them,
 		// then request a quota increase
 		if caseID == "" && err == nil {
-			// TODO UPDATE
-			// reqLogger.Info("submitting vCPU quota increase request", "region", '')
+			reqLogger.Info("submitting quota increase request", "QuotaCode", string(serviceQuota.QuotaCode), "Value", serviceQuota.Value)
 			caseID, err = setServiceQuota(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 			if err != nil {
 				reqLogger.Error(err, "failed requesting vCPU quota increase")
@@ -74,10 +73,10 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, aw
 		// Can't update account conditions from within the asyncRegionInit goroutine, because
 		// the account is being updated elsewhere and will conflict.
 		if caseID != "" {
-			// TODO UPDATE
-			// reqLogger.Info("quota increase request submitted successfully", "region", region, "caseID", caseID)
+			reqLogger.Info("quota increase request submitted successfully", "QuotaCode", string(serviceQuota.QuotaCode), "caseID", caseID)
 		}
 	} else {
+		reqLogger.Info("Quota Increase not required")
 		serviceQuota.Completed = true
 	}
 	return nil
@@ -86,7 +85,7 @@ func (r *AccountReconciler) handleServiceQuotaRequests(reqLogger logr.Logger, aw
 func getServiceCode(quotaCode awsv1alpha1.SupportedServiceQuotas) (string, bool) {
 
 	servicesMap := map[awsv1alpha1.SupportedServiceQuotas]string{
-		awsv1alpha1.VCPUQuotaCode: "ec2",
+		awsv1alpha1.VCPUQuotaCode: string(awsv1alpha1.VCPUServiceCode),
 	}
 
 	v, found := servicesMap[quotaCode]

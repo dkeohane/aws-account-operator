@@ -495,16 +495,12 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 			// Update supportCaseId in CR
 			currentAcctInstance.Status.SupportCaseID = caseID
 			utils.SetAccountStatus(currentAcctInstance, "Account pending verification in AWS", awsv1alpha1.AccountPendingVerification, AccountPendingVerification)
+			currentAcctInstance.Status.QuotaIncreaseRequests = currentAcctInstance.Spec.ServiceQuotas
 			err = r.statusUpdate(currentAcctInstance)
 			if err != nil {
 				reqLogger.Error(err, "failed to update account state, retrying", "desired state", AccountPendingVerification)
 				return reconcile.Result{}, err
 			}
-
-			for i := range currentAcctInstance.Spec.ServiceQuotas {
-				r.handleServiceQuotaRequests(reqLogger, awsSetupClient, &currentAcctInstance.Spec.ServiceQuotas[i]) //  Correct client?
-			}
-			currentAcctInstance.Status.QuotaIncreaseRequests = currentAcctInstance.Spec.ServiceQuotas
 
 			// After creating the support case or increasing quotas requeue the request. To avoid flooding
 			// and being blacklisted by AWS when starting the operator with a large AccountPool, add a
@@ -548,7 +544,7 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 
 			// for each open quota increase request, check it.
 			for i := range openQuotaIncreaseRequestRefs {
-				r.handleServiceQuotaRequests(reqLogger, awsSetupClient, openQuotaIncreaseRequestRefs[i])
+				r.HandleServiceQuotaRequests(reqLogger, awsSetupClient, openQuotaIncreaseRequestRefs[i])
 			}
 
 			// If the number of open reqs has changed then we need to update the Account CR Status
