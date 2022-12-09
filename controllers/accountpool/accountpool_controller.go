@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"gopkg.in/yaml.v2"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/go-logr/logr"
 	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
+	"github.com/openshift/aws-account-operator/config"
 	"github.com/openshift/aws-account-operator/controllers/account"
 	"github.com/openshift/aws-account-operator/pkg/totalaccountwatcher"
 	"github.com/openshift/aws-account-operator/pkg/utils"
@@ -63,7 +65,7 @@ func (r *AccountPoolReconciler) Reconcile(ctx context.Context, request ctrl.Requ
 	}
 
 	// Calculate unclaimed accounts vs claimed accounts
-	calculatedStatus, err := r.calculateAccountPoolStatus(currentAccountPool.Name)
+	calculatedStatus, err := r.calculateAccountPoolStatus(reqLogger, currentAccountPool.Name)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -125,7 +127,7 @@ func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, accou
 
 	type AccountPool struct {
 		IsDefault     bool              `yaml:"default,omitempty"`
-		Servicequotas map[string]string `yaml:"servicequotas"`
+		Servicequotas map[string]string `yaml:"servicequotas,omitempty"`
 	}
 
 	data := make(map[string]AccountPool)
@@ -148,7 +150,6 @@ func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, accou
 				Value:     qv,
 			})
 		}
-
 	}
 	reqLogger.Info("Loaded Service Quotas")
 
@@ -158,7 +159,7 @@ func (r *AccountPoolReconciler) handleServiceQuotas(reqLogger logr.Logger, accou
 }
 
 // Calculates the unclaimedAccountCount and Claimed Account Counts
-func (r *AccountPoolReconciler) calculateAccountPoolStatus(poolName string) (awsv1alpha1.AccountPoolStatus, error) {
+func (r *AccountPoolReconciler) calculateAccountPoolStatus(reqLogger logr.Logger, poolName string) (awsv1alpha1.AccountPoolStatus, error) {
 	unclaimedAccountCount := 0
 	claimedAccountCount := 0
 	availableAccounts := 0
@@ -180,8 +181,20 @@ func (r *AccountPoolReconciler) calculateAccountPoolStatus(poolName string) (aws
 			continue
 		}
 
-		// If an accountpool name is specified, we want to count ONLY that pool
-		if poolName != "" {
+		// Special intermediary case until all account crs have had their account.Spec.AccountPool set appropriately.
+		// If account.Spec.AccountPool is empty, we count it as if it's from the default accountpool.
+		if account.Spec.AccountPool == "" {
+			defaultPoolName, err := config.GetDefaultAccountPoolName(reqLogger, r.Client)
+
+			if err != nil {
+				return awsv1alpha1.AccountPoolStatus{}, err
+			}
+
+			if poolName != defaultPoolName {
+				continue
+			}
+		} else {
+			// If an accountpool name is specified, we want to count ONLY that pool
 			if account.Spec.AccountPool != poolName {
 				continue
 			}

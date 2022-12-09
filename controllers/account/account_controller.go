@@ -544,12 +544,18 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 
 			// for each open quota increase request, check it.
 			for i := range openQuotaIncreaseRequestRefs {
-				r.HandleServiceQuotaRequests(reqLogger, awsSetupClient, openQuotaIncreaseRequestRefs[i])
+				err := r.HandleServiceQuotaRequests(reqLogger, awsSetupClient, openQuotaIncreaseRequestRefs[i])
+				if err != nil {
+					return reconcile.Result{}, err // TODO: For review, do we want to be handling the error like this?
+				}
 			}
 
 			// If the number of open reqs has changed then we need to update the Account CR Status
 			if reqCount != len(currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()) {
-				r.statusUpdate(currentAcctInstance)
+				err := r.statusUpdate(currentAcctInstance)
+				if err != nil {
+					return reconcile.Result{}, err // TODO: For review, do we want to be handling the error like this?
+				}
 			}
 		}
 	}

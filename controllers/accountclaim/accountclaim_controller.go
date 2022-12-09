@@ -11,8 +11,6 @@ import (
 	"github.com/openshift/aws-account-operator/pkg/awsclient"
 	"github.com/openshift/aws-account-operator/pkg/localmetrics"
 	controllerutils "github.com/openshift/aws-account-operator/pkg/utils"
-	"github.com/openshift/aws-account-operator/test/fixtures"
-	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -443,7 +441,7 @@ func (r *AccountClaimReconciler) getUnclaimedAccount(reqLogger logr.Logger, acco
 	} else {
 		// Otherwise we'll want to get an account from the default account pool ONLY, so we need to filter out
 		// the non-default-accountpool accounts
-		defaultAccountPoolName, err := r.getDefaultAccountPoolName()
+		defaultAccountPoolName, err := config.GetDefaultAccountPoolName(reqLogger, r.Client)
 
 		if err != nil {
 			return nil, err
@@ -491,37 +489,6 @@ func checkClaimAccountValidity(reqLogger logr.Logger, account awsv1alpha1.Accoun
 	}
 	// Neither unclaimed nor reused accounts found
 	return nil, fmt.Errorf("can't find a ready account to claim")
-}
-
-func (r *AccountClaimReconciler) getDefaultAccountPoolName() (string, error) {
-
-	cm, err := controllerutils.GetOperatorConfigMap(r.Client)
-	if err != nil {
-		log.Error(err, "failed retrieving configmap")
-		return "", err
-	}
-
-	accountpoolString := cm.Data["accountpool"]
-
-	type AccountPool struct {
-		IsDefault     bool              `yaml:"default,omitempty"`
-		Servicequotas map[string]string `yaml:"servicequotas"`
-	}
-
-	data := make(map[string]AccountPool)
-	err = yaml.Unmarshal([]byte(accountpoolString), &data)
-
-	if err != nil {
-		return "", err
-	}
-
-	for poolName, poolData := range data {
-		if poolData.IsDefault {
-			return poolName, nil
-		}
-	}
-
-	return "", fixtures.NotFound
 }
 
 func (r *AccountClaimReconciler) createIAMSecret(reqLogger logr.Logger, accountClaim *awsv1alpha1.AccountClaim, unclaimedAccount *awsv1alpha1.Account) error {

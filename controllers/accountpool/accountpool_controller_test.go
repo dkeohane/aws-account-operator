@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
-
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,11 +61,9 @@ func createAccountMock(name string, state string, claimed bool) *awsv1alpha1.Acc
 	}
 	return &awsv1alpha1.Account{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "aws-account-operator",
-			OwnerReferences: []metav1.OwnerReference{
-				metav1.OwnerReference{Kind: "AccountPool"},
-			},
+			Name:            name,
+			Namespace:       "aws-account-operator",
+			OwnerReferences: []metav1.OwnerReference{{Kind: "AccountPool"}},
 		},
 		Spec: awsv1alpha1.AccountSpec{
 			AwsAccountID:  "000000",
@@ -94,6 +92,17 @@ func TestReconcileAccountPool(t *testing.T) {
 	}
 
 	localmetrics.Collector = localmetrics.NewMetricsCollector(nil)
+
+	configmap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      awsv1alpha1.DefaultConfigMap,
+			Namespace: awsv1alpha1.AccountCrNamespace,
+		},
+		Data: map[string]string{
+			"accountpool": "test: {\"default\": true}",
+		},
+	}
+
 	tests := []struct {
 		name                  string
 		localObjects          []runtime.Object
@@ -118,6 +127,7 @@ func TestReconcileAccountPool(t *testing.T) {
 						UnclaimedAccounts: 2,
 					},
 				},
+				configmap,
 				createAccountMock("account1", "Ready", unclaimed),
 				createAccountMock("account2", "Ready", unclaimed),
 			},
@@ -155,6 +165,7 @@ func TestReconcileAccountPool(t *testing.T) {
 						UnclaimedAccounts: 0,
 					},
 				},
+				configmap,
 			},
 			expectedAccountPool: awsv1alpha1.AccountPool{
 				ObjectMeta: metav1.ObjectMeta{
@@ -185,6 +196,7 @@ func TestReconcileAccountPool(t *testing.T) {
 						PoolSize: 1,
 					},
 				},
+				configmap,
 				createAccountMock("account1", "Ready", unclaimed),
 				createAccountMock("account2", "InitializingRegions", unclaimed),
 				createAccountMock("account3", "PendingVerification", unclaimed),
