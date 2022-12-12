@@ -562,7 +562,8 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 
 	// Case Resolved and quota increases are all done: account is Ready
 	if supportCaseResolved && len(currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()) == 0 {
-		reqLogger.Info("case resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
+		reqLogger.Info("case and quota increases resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
+		utils.SetAccountStatus(currentAcctInstance, "Account ready to be claimed", awsv1alpha1.AccountReady, AccountReady)
 		return reconcile.Result{}, nil
 	}
 
