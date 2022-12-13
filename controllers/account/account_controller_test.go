@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/organizations"
+	"github.com/aws/aws-sdk-go/service/servicequotas"
+	"github.com/aws/aws-sdk-go/service/support"
 	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
 	apis "github.com/openshift/aws-account-operator/api"
@@ -99,6 +101,11 @@ func (t *testAccountBuilder) WithObjectMeta(objm metav1.ObjectMeta) *testAccount
 // Just set the whole Status all in one go
 func (t *testAccountBuilder) WithStatus(status awsv1alpha1.AccountStatus) *testAccountBuilder {
 	t.acct.Status = status
+	return t
+}
+
+func (t *testAccountBuilder) WithServiceQuota(servicequotas []awsv1alpha1.AccountServiceQuota) *testAccountBuilder {
+	t.acct.Spec.ServiceQuotas = servicequotas
 	return t
 }
 
@@ -1245,10 +1252,6 @@ var _ = Describe("Account Controller", func() {
 		}
 	})
 
-	AfterEach(func() {
-		ctrl.Finish()
-	})
-
 	Context("Testing CreateAccount", func() {
 
 		It("AWS returns ErrCodeConstraintViolationException from CreateAccount", func() {
@@ -1414,5 +1417,119 @@ var _ = Describe("Account Controller", func() {
 			})))
 		})
 
+	})
+
+	Context("Testing account CR service quotas", func() {
+		utils.DetectDevMode = ""
+		When("Called with a CCS account", func() {
+			account = &newTestAccountBuilder().BYOC(true).WithState(awsv1alpha1.AccountPendingVerification).acct
+			It("does nothing", func() {
+				_, err := r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(Equal("Account is BYOC - should not be handled in NonCCS method"))
+			})
+		})
+		When("Called with a non-CCS account", func() {
+			BeforeEach(func() {
+				account = &newTestAccountBuilder().BYOC(false).WithState(awsv1alpha1.AccountPendingVerification).acct
+				r.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects([]runtime.Object{account}...).Build()
+			})
+			When("No service quotas are defined for the account", func() {
+				It("does does not open service quota requests for the account", func() {
+					mockAWSClient.EXPECT().CreateCase(gomock.Any()).Return(&support.CreateCaseOutput{
+						CaseId: aws.String("123456"),
+					}, nil)
+					mockAWSClient.EXPECT().DescribeCases(gomock.Any()).Return(&support.DescribeCasesOutput{
+						Cases: []*support.CaseDetails{
+							{
+								CaseId: aws.String("123456"),
+								Status: aws.String("resolved"),
+							},
+						},
+					}, nil)
+					mockAWSClient.EXPECT().RequestServiceQuotaIncrease(gomock.Any()).Times(0)
+					Eventually(func() []string {
+						r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
+						return []string{account.Status.State, account.Status.SupportCaseID}
+					}).Should(Equal([]string{AccountReady, "123456"}))
+				})
+			})
+			When("Service quotas are defined for the account", func() {
+				BeforeEach(func() {
+					account = &newTestAccountBuilder().BYOC(false).WithServiceQuota([]awsv1alpha1.AccountServiceQuota{
+						{
+							QuotaCode: awsv1alpha1.VCPUQuotaCode,
+							Value:     100,
+						},
+					}).WithState(awsv1alpha1.AccountPendingVerification).acct
+					r.Client = fake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects([]runtime.Object{account, configMap}...).Build()
+				})
+				It("errors when called with a unsupported (by us) servicequota", func() {
+					account = &newTestAccountBuilder().BYOC(false).WithServiceQuota([]awsv1alpha1.AccountServiceQuota{
+						{
+							QuotaCode: "Invalid-Quota",
+							Value:     100,
+						},
+					}).WithState(awsv1alpha1.AccountPendingVerification).acct
+					mockAWSClient.EXPECT().CreateCase(gomock.Any()).Return(&support.CreateCaseOutput{
+						CaseId: aws.String("123456"),
+					}, nil)
+					_, err := r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
+					Expect(err).To(HaveOccurred())
+				})
+				It("creates a servicequota case for each defined quota", func() {
+					// Reconciliation loop 1
+					mockAWSClient.EXPECT().CreateCase(gomock.Any()).Return(&support.CreateCaseOutput{
+						CaseId: aws.String("123456"),
+					}, nil)
+					mockAWSClient.EXPECT().DescribeCases(gomock.Any()).Return(&support.DescribeCasesOutput{
+						Cases: []*support.CaseDetails{
+							{
+								CaseId: aws.String("123456"),
+								Status: aws.String("resolved"),
+							},
+						},
+					}, nil)
+					mockAWSClient.EXPECT().ListRequestedServiceQuotaChangeHistoryByQuota(gomock.Any()).Return(&servicequotas.ListRequestedServiceQuotaChangeHistoryByQuotaOutput{
+						RequestedQuotas: []*servicequotas.RequestedServiceQuotaChange{},
+					}, nil)
+					mockAWSClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
+						Quota: &servicequotas.ServiceQuota{
+							QuotaCode: aws.String(string(awsv1alpha1.VCPUQuotaCode)),
+							Value:     aws.Float64(0),
+						},
+					}, nil)
+					mockAWSClient.EXPECT().RequestServiceQuotaIncrease(gomock.Any()).Return(&servicequotas.RequestServiceQuotaIncreaseOutput{
+						RequestedQuota: &servicequotas.RequestedServiceQuotaChange{
+							CaseId: aws.String("234567"),
+						},
+					}, nil)
+					// Reconciliation loop 2
+					mockAWSClient.EXPECT().DescribeCases(gomock.Any()).Return(&support.DescribeCasesOutput{
+						Cases: []*support.CaseDetails{
+							{
+								CaseId: aws.String("123456"),
+								Status: aws.String("resolved"),
+							},
+						},
+					}, nil)
+					// The quota now matches the requested value the case is finished
+					mockAWSClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
+						Quota: &servicequotas.ServiceQuota{
+							QuotaCode: aws.String(string(awsv1alpha1.VCPUQuotaCode)),
+							Value:     aws.Float64(100),
+						},
+					}, nil)
+					Eventually(func() []string {
+						r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
+						return []string{account.Status.State, account.Status.SupportCaseID}
+					}).Should(Equal([]string{AccountReady, "123456"}))
+				})
+			})
+		})
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
 	})
 })

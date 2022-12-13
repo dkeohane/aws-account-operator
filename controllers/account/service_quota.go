@@ -56,6 +56,7 @@ func (r *AccountReconciler) HandleServiceQuotaRequests(reqLogger logr.Logger, aw
 		// If a Case ID was found, log it - the request was already submitted
 		if caseID != "" {
 			reqLogger.Info("found matching quota change request", "caseID", caseID)
+			return nil
 		}
 
 		// If there is not matching request already,
