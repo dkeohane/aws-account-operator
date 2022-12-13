@@ -42,7 +42,6 @@ type AccountSpec struct {
 	ServiceQuotas      []AccountServiceQuota `json:"serviceQuotas,omitempty"`
 }
 
-//
 // +k8s:openapi-gen=true
 type AccountServiceQuota struct {
 	// +kubebuilder:validation:Enum=L-1216C47A
@@ -172,7 +171,7 @@ func init() {
 
 // Helper Functions
 
-//IsFailed returns true if an account is in a failed state
+// IsFailed returns true if an account is in a failed state
 func (a *Account) IsFailed() bool {
 	failedStates := [7]string{
 		string(AccountFailed),
@@ -191,17 +190,17 @@ func (a *Account) IsFailed() bool {
 	return false
 }
 
-//HasState returns true if an account has a state set at all
+// HasState returns true if an account has a state set at all
 func (a *Account) HasState() bool {
 	return a.Status.State != ""
 }
 
-//HasSupportCaseID returns true if an account has a SupportCaseID Set
+// HasSupportCaseID returns true if an account has a SupportCaseID Set
 func (a *Account) HasSupportCaseID() bool {
 	return a.Status.SupportCaseID != ""
 }
 
-//HasOpenQuotaIncreaseRequests returns true if an account has any open quota increase requests
+// HasOpenQuotaIncreaseRequests returns true if an account has any open quota increase requests
 func (a *Account) HasOpenQuotaIncreaseRequests() bool {
 	for _, v := range a.Status.QuotaIncreaseRequests {
 		if !v.Completed {
@@ -213,62 +212,62 @@ func (a *Account) HasOpenQuotaIncreaseRequests() bool {
 
 func (a *Account) GetOpenQuotaIncreaseRequestsRef() []*AccountServiceQuota {
 	var returnQuotaIncreaseRequest []*AccountServiceQuota
-	for _, v := range a.Status.QuotaIncreaseRequests {
-		if !v.Completed {
-			returnQuotaIncreaseRequest = append(returnQuotaIncreaseRequest, &v)
+	for i, _ := range a.Status.QuotaIncreaseRequests {
+		if !a.Status.QuotaIncreaseRequests[i].Completed {
+			returnQuotaIncreaseRequest = append(returnQuotaIncreaseRequest, &a.Status.QuotaIncreaseRequests[i])
 		}
 	}
 	return returnQuotaIncreaseRequest
 }
 
-//IsPendingVerification returns true if the account is in a PendingVerification state
+// IsPendingVerification returns true if the account is in a PendingVerification state
 func (a *Account) IsPendingVerification() bool {
 	return a.Status.State == string(AccountPendingVerification)
 }
 
-//IsReady returns true if an account is ready
+// IsReady returns true if an account is ready
 func (a *Account) IsReady() bool {
 	return a.Status.State == string(AccountReady)
 }
 
-//IsCreating returns true if an account is creating
+// IsCreating returns true if an account is creating
 func (a *Account) IsCreating() bool {
 	return a.Status.State == string(AccountCreating)
 }
 
-//HasClaimLink returns true if an accounts claim link is not empty
+// HasClaimLink returns true if an accounts claim link is not empty
 func (a *Account) HasClaimLink() bool {
 	return a.Spec.ClaimLink != ""
 }
 
-//IsClaimed returns true if account Status.Claimed is false
+// IsClaimed returns true if account Status.Claimed is false
 func (a *Account) IsClaimed() bool {
 	return a.Status.Claimed
 }
 
-//IsPendingDeletion returns true if a DeletionTimestamp has been set
+// IsPendingDeletion returns true if a DeletionTimestamp has been set
 func (a *Account) IsPendingDeletion() bool {
 	return a.DeletionTimestamp != nil
 }
 
-//IsBYOC returns true if account is a BYOC account
+// IsBYOC returns true if account is a BYOC account
 func (a *Account) IsBYOC() bool {
 	return a.Spec.BYOC
 }
 
-//HasAwsAccountID returns true if awsAccountID is set
+// HasAwsAccountID returns true if awsAccountID is set
 func (a *Account) HasAwsAccountID() bool {
 	return a.Spec.AwsAccountID != ""
 }
 
-//IsReadyUnclaimedAndHasClaimLink returns true if an account is ready, unclaimed, and has a claim link
+// IsReadyUnclaimedAndHasClaimLink returns true if an account is ready, unclaimed, and has a claim link
 func (a *Account) IsReadyUnclaimedAndHasClaimLink() bool {
 	return a.IsReady() &&
 		a.HasClaimLink() &&
 		!a.IsClaimed()
 }
 
-//HasAwsv1alpha1Finalizer returns true if the awsv1alpha1 finalizer is set on the account
+// HasAwsv1alpha1Finalizer returns true if the awsv1alpha1 finalizer is set on the account
 func (a *Account) HasAwsv1alpha1Finalizer() bool {
 	for _, v := range a.GetFinalizers() {
 		if v == AccountFinalizer {
@@ -288,7 +287,7 @@ func (a *Account) IsNonSTSPendingDeletionWithFinalizer() bool {
 		a.HasAwsv1alpha1Finalizer()
 }
 
-//IsBYOCPendingDeletionWithFinalizer returns true if account is a BYOC Account,
+// IsBYOCPendingDeletionWithFinalizer returns true if account is a BYOC Account,
 // has been marked for deletion (deletion timestamp set), and has a finalizer set.
 func (a *Account) IsBYOCPendingDeletionWithFinalizer() bool {
 	return a.IsPendingDeletion() &&
@@ -296,36 +295,36 @@ func (a *Account) IsBYOCPendingDeletionWithFinalizer() bool {
 		a.HasAwsv1alpha1Finalizer()
 }
 
-//IsBYOCAndNotReady returns true if account is BYOC and the state is not AccountReady
+// IsBYOCAndNotReady returns true if account is BYOC and the state is not AccountReady
 func (a *Account) IsBYOCAndNotReady() bool {
 	return a.IsBYOC() && !a.IsReady()
 }
 
-//ReadyForInitialization returns true if account is a BYOC Account and the state is not ready OR
+// ReadyForInitialization returns true if account is a BYOC Account and the state is not ready OR
 // accout state is creating, and has not been claimed
 func (a *Account) ReadyForInitialization() bool {
 	return a.IsBYOCAndNotReady() ||
 		a.IsUnclaimedAndIsCreating()
 }
 
-//IsUnclaimedAndHasNoState returns true if account has not set state and has not been claimed
+// IsUnclaimedAndHasNoState returns true if account has not set state and has not been claimed
 func (a *Account) IsUnclaimedAndHasNoState() bool {
 	return !a.HasState() &&
 		!a.IsClaimed()
 }
 
-//IsUnclaimedAndIsCreating returns true if account state is AccountCreating and has not been claimed
+// IsUnclaimedAndIsCreating returns true if account state is AccountCreating and has not been claimed
 func (a *Account) IsUnclaimedAndIsCreating() bool {
 	return a.IsCreating() &&
 		!a.IsClaimed()
 }
 
-//IsInitializingRegions returns true if the account state is InitalizingRegions
+// IsInitializingRegions returns true if the account state is InitalizingRegions
 func (a *Account) IsInitializingRegions() bool {
 	return a.Status.State == AccountInitializingRegions
 }
 
-//IsProgressing returns true if the account state is Creating, Pending Verification, or InitializingRegions
+// IsProgressing returns true if the account state is Creating, Pending Verification, or InitializingRegions
 func (a *Account) IsProgressing() bool {
 	if a.Status.State == string(AccountCreating) ||
 		a.Status.State == string(AccountPendingVerification) ||
@@ -340,12 +339,12 @@ func (a *Account) HasBeenClaimedAtLeastOnce() bool {
 	return a.Spec.LegalEntity.ID != "" || a.Status.Reused
 }
 
-//HasNeverBeenClaimed returns true if the account is not claimed AND has no legalEntity set, meaning it hasn't been claimed before and is not available for reuse
+// HasNeverBeenClaimed returns true if the account is not claimed AND has no legalEntity set, meaning it hasn't been claimed before and is not available for reuse
 func (a *Account) HasNeverBeenClaimed() bool {
 	return !a.Status.Claimed && a.Spec.LegalEntity.ID == ""
 }
 
-//IsOwnedByAccountPool returns true if the account has an ownerreference type that is the accountpool
+// IsOwnedByAccountPool returns true if the account has an ownerreference type that is the accountpool
 func (a *Account) IsOwnedByAccountPool() bool {
 	if a.ObjectMeta.OwnerReferences == nil {
 		return false

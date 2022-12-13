@@ -232,7 +232,7 @@ func (r *AccountReconciler) Reconcile(ctx context.Context, request ctrl.Request)
 
 		// Test PendingVerification state creating support case and checking for case status
 		if currentAcctInstance.IsPendingVerification() {
-			return r.handleNonCCSPendingVerification(reqLogger, currentAcctInstance, awsSetupClient)
+			return r.HandleNonCCSPendingVerification(reqLogger, currentAcctInstance, awsSetupClient)
 		}
 
 		// Update account Status.Claimed to true if the account is ready and the claim link is not empty
@@ -481,8 +481,28 @@ func (r *AccountReconciler) handleAccountInitializingRegions(reqLogger logr.Logg
 }
 
 // TODO Add service quota validation here
-func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logger, currentAcctInstance *awsv1alpha1.Account, awsSetupClient awsclient.Client) (reconcile.Result, error) {
+// States this will walk through (T = reconciliation loop):
+// | T   | ACCOUNT             | ACTIONS                                                                      |
+// |-----+---------------------+------------------------------------------------------------------------------|
+// | 0   | PendingVerification | create case Id                                                               |
+// |     |                     | ┣ open quota requests                                                        |
+// |     |                     | ┗ assign quota requests to status to show 'in-progress'                      |
+// |-----+---------------------+------------------------------------------------------------------------------|
+// | 1-N | PendingVerification | checks if support case if resolved                                           |
+// |     |                     | checks if all quota increases are finished                                   |
+// |     |                     | ┣ Uses status to track open requests                                         |
+// |     |                     | ┣ Calls HandleServiceQuotaRequests for each requests (does the actual check) |
+// |     |                     | ┃ ┗ Marks quota-*status* complete once the request is finished               |
+// |     |                     | ┗ Marks quota-requests as complete once all are done                         |
+// |-----+---------------------+------------------------------------------------------------------------------|
+// | N+1 | ???                 | Where is the PendingVerification status updated?                             |
+func (r *AccountReconciler) HandleNonCCSPendingVerification(reqLogger logr.Logger, currentAcctInstance *awsv1alpha1.Account, awsSetupClient awsclient.Client) (reconcile.Result, error) {
 	// If the supportCaseID is blank and Account State = PendingVerification, create a case
+	if currentAcctInstance.Spec.BYOC {
+		err := errors.New("Account is BYOC - should not be handled in NonCCS method")
+		reqLogger.Error(err, "a BYOC account passed to non-CCS function", "account", currentAcctInstance.Name)
+		return reconcile.Result{}, err
+	}
 	if !currentAcctInstance.HasSupportCaseID() {
 		switch utils.DetectDevMode {
 		case utils.DevModeProduction:
@@ -536,7 +556,7 @@ func (r *AccountReconciler) handleNonCCSPendingVerification(reqLogger logr.Logge
 	// Check for any open quota increases - this will require adding a method to currentAcctInstance to look for
 	// open quota requests.  I'm thinking we could do like, a list in the status struct of the Account, so it would
 	// be like `currentAcctInstance.Status.OpenQuotaRequests = []string`
-	if !currentAcctInstance.HasOpenQuotaIncreaseRequests() {
+	if currentAcctInstance.HasOpenQuotaIncreaseRequests() {
 		switch utils.DetectDevMode {
 		case utils.DevModeProduction:
 			openQuotaIncreaseRequestRefs := currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()
