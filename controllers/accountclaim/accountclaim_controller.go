@@ -54,8 +54,9 @@ type AccountClaimReconciler struct {
 //+kubebuilder:rbac:groups=aws.managed.openshift.io,resources=accountclaims/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=aws.managed.openshift.io,resources=accountclaims/finalizers,verbs=update
 
-//go:generate mockgen -destination ./mock/cr-client.go -package mock sigs.k8s.io/controller-runtime/pkg/client Client
 // NewReconcileAccountClaim initializes ReconcileAccountClaim
+//
+//go:generate mockgen -destination ./mock/cr-client.go -package mock sigs.k8s.io/controller-runtime/pkg/client Client
 func NewAccountClaimReconciler(client client.Client, scheme *runtime.Scheme, awsClientBuilder awsclient.IBuilder) *AccountClaimReconciler {
 	return &AccountClaimReconciler{
 		Client:           client,
@@ -431,29 +432,26 @@ func (r *AccountClaimReconciler) getUnclaimedAccount(reqLogger logr.Logger, acco
 		return nil, err
 	}
 
-	// If the AccountClaim is targetting a specific AccountPool, we want to claim an account from it
-	if accountClaim.Spec.AccountPool != "" {
+	defaultAccountPoolName, err := config.GetDefaultAccountPoolName(reqLogger, r.Client)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if defaultAccountPoolName == "" {
+		return nil, fmt.Errorf("can't find a ready account to claim") // TODO CHANGE WORDING
+	}
+
+	if accountClaim.Spec.AccountPool == defaultAccountPoolName || accountClaim.Spec.AccountPool == "" {
 		for _, account := range accountList.Items {
-			if account.Spec.AccountPool == accountClaim.Spec.AccountPool {
+			// Ensure we're pulling accounts from the default accountPool
+			if account.Spec.AccountPool == defaultAccountPoolName || (account.IsOwnedByAccountPool() && account.Spec.AccountPool == "") {
 				return checkClaimAccountValidity(reqLogger, account, accountClaim)
 			}
 		}
 	} else {
-		// Otherwise we'll want to get an account from the default account pool ONLY, so we need to filter out
-		// the non-default-accountpool accounts
-		defaultAccountPoolName, err := config.GetDefaultAccountPoolName(reqLogger, r.Client)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if defaultAccountPoolName == "" {
-			return nil, fmt.Errorf("can't find a ready account to claim") // TODO CHANGE WORDING
-		}
-
 		for _, account := range accountList.Items {
-			// Ensure we're pulling accounts from the default accountPool
-			if account.Spec.AccountPool == defaultAccountPoolName {
+			if account.Spec.AccountPool == accountClaim.Spec.AccountPool {
 				return checkClaimAccountValidity(reqLogger, account, accountClaim)
 			}
 		}
