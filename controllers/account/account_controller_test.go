@@ -11,11 +11,13 @@ import (
 	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/organizations"
 	"github.com/aws/aws-sdk-go/service/servicequotas"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/aws/aws-sdk-go/service/support"
 	"github.com/go-logr/logr"
 	"github.com/golang/mock/gomock"
 	apis "github.com/openshift/aws-account-operator/api"
 	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
+	"github.com/openshift/aws-account-operator/pkg/awsclient"
 	"github.com/openshift/aws-account-operator/pkg/awsclient/mock"
 	"github.com/openshift/aws-account-operator/pkg/testutils"
 	"github.com/openshift/aws-account-operator/pkg/utils"
@@ -1477,7 +1479,16 @@ var _ = Describe("Account Controller", func() {
 					_, err := r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
 					Expect(err).To(HaveOccurred())
 				})
-				It("creates a servicequota case for each defined quota", func() {
+				It("does not create a servicequota case if the quota is already higher", func() {
+					subClient := mock.NewMockClient(ctrl)
+					AssumeRole = func(r *AccountReconciler,
+						reqLogger logr.Logger,
+						currentAcctInstance *awsv1alpha1.Account,
+						awsSetupClient awsclient.Client,
+						roleToAssume string,
+						ccsRoleID string) (awsclient.Client, *sts.AssumeRoleOutput, error) {
+						return subClient, &sts.AssumeRoleOutput{}, nil
+					}
 					// Reconciliation loop 1
 					mockAWSClient.EXPECT().CreateCase(gomock.Any()).Return(&support.CreateCaseOutput{
 						CaseId: aws.String("123456"),
@@ -1490,16 +1501,50 @@ var _ = Describe("Account Controller", func() {
 							},
 						},
 					}, nil)
-					mockAWSClient.EXPECT().ListRequestedServiceQuotaChangeHistoryByQuota(gomock.Any()).Return(&servicequotas.ListRequestedServiceQuotaChangeHistoryByQuotaOutput{
+					subClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
+						Quota: &servicequotas.ServiceQuota{
+							QuotaCode: aws.String(string(awsv1alpha1.VCPUQuotaCode)),
+							Value:     aws.Float64(101),
+						},
+					}, nil)
+					subClient.EXPECT().RequestServiceQuotaIncrease(gomock.Any()).Times(0)
+					Eventually(func() []string {
+						r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
+						return []string{account.Status.State, account.Status.SupportCaseID}
+					}).Should(Equal([]string{AccountReady, "123456"}))
+				})
+				It("creates a servicequota case for each defined quota", func() {
+					subClient := mock.NewMockClient(ctrl)
+					AssumeRole = func(r *AccountReconciler,
+						reqLogger logr.Logger,
+						currentAcctInstance *awsv1alpha1.Account,
+						awsSetupClient awsclient.Client,
+						roleToAssume string,
+						ccsRoleID string) (awsclient.Client, *sts.AssumeRoleOutput, error) {
+						return subClient, &sts.AssumeRoleOutput{}, nil
+					}
+					// Reconciliation loop 1
+					mockAWSClient.EXPECT().CreateCase(gomock.Any()).Return(&support.CreateCaseOutput{
+						CaseId: aws.String("123456"),
+					}, nil)
+					mockAWSClient.EXPECT().DescribeCases(gomock.Any()).Return(&support.DescribeCasesOutput{
+						Cases: []*support.CaseDetails{
+							{
+								CaseId: aws.String("123456"),
+								Status: aws.String("resolved"),
+							},
+						},
+					}, nil)
+					subClient.EXPECT().ListRequestedServiceQuotaChangeHistoryByQuota(gomock.Any()).Return(&servicequotas.ListRequestedServiceQuotaChangeHistoryByQuotaOutput{
 						RequestedQuotas: []*servicequotas.RequestedServiceQuotaChange{},
 					}, nil)
-					mockAWSClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
+					subClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
 						Quota: &servicequotas.ServiceQuota{
 							QuotaCode: aws.String(string(awsv1alpha1.VCPUQuotaCode)),
 							Value:     aws.Float64(0),
 						},
 					}, nil)
-					mockAWSClient.EXPECT().RequestServiceQuotaIncrease(gomock.Any()).Return(&servicequotas.RequestServiceQuotaIncreaseOutput{
+					subClient.EXPECT().RequestServiceQuotaIncrease(gomock.Any()).Return(&servicequotas.RequestServiceQuotaIncreaseOutput{
 						RequestedQuota: &servicequotas.RequestedServiceQuotaChange{
 							CaseId: aws.String("234567"),
 						},
@@ -1514,7 +1559,7 @@ var _ = Describe("Account Controller", func() {
 						},
 					}, nil)
 					// The quota now matches the requested value the case is finished
-					mockAWSClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
+					subClient.EXPECT().GetServiceQuota(gomock.Any()).Return(&servicequotas.GetServiceQuotaOutput{
 						Quota: &servicequotas.ServiceQuota{
 							QuotaCode: aws.String(string(awsv1alpha1.VCPUQuotaCode)),
 							Value:     aws.Float64(100),
@@ -1524,6 +1569,12 @@ var _ = Describe("Account Controller", func() {
 						r.HandleNonCCSPendingVerification(nullLogger, account, mockAWSClient)
 						return []string{account.Status.State, account.Status.SupportCaseID}
 					}).Should(Equal([]string{AccountReady, "123456"}))
+					var k8sAccount awsv1alpha1.Account
+					r.Client.Get(context.TODO(), types.NamespacedName{
+						Namespace: TestAccountNamespace,
+						Name:      TestAccountName,
+					}, &k8sAccount)
+					Expect(k8sAccount.Status.State).To(Equal(AccountReady))
 				})
 			})
 		})

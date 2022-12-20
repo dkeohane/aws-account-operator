@@ -36,7 +36,7 @@ func (r *AccountReconciler) HandleServiceQuotaRequests(reqLogger logr.Logger, aw
 		return fixtures.NotFound
 	}
 
-	quotaIncreaseRequired, err := serviceQuotaNeedsIncrease(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
+	quotaIncreaseRequired, err := serviceQuotaNeedsIncrease(reqLogger, awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 	if err != nil {
 		reqLogger.Error(err, "failed retrieving current vCPU quota from AWS")
 		return err
@@ -47,7 +47,7 @@ func (r *AccountReconciler) HandleServiceQuotaRequests(reqLogger logr.Logger, aw
 			fmt.Sprintf("Quota Increase required for QuotaCode [%s] ServiceCode [%s] Requested Value [%d]",
 				string(serviceQuota.QuotaCode), serviceCode, serviceQuota.Value),
 		)
-		caseID, err := checkQuotaRequestHistory(awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
+		caseID, err := checkQuotaRequestHistory(reqLogger, awsClient, string(serviceQuota.QuotaCode), serviceCode, float64(serviceQuota.Value))
 		if err != nil {
 			reqLogger.Error(err, "failed to get quota change history")
 			return err
@@ -117,7 +117,7 @@ func (r *AccountReconciler) getDesiredServiceQuotaValue(reqLogger logr.Logger, q
 	return vCPUQuota, nil
 }
 
-func serviceQuotaNeedsIncrease(client awsclient.Client, quotaCode string, serviceCode string, desiredQuota float64) (bool, error) {
+func serviceQuotaNeedsIncrease(reqLogger logr.Logger, client awsclient.Client, quotaCode string, serviceCode string, desiredQuota float64) (bool, error) {
 	var result *servicequotas.GetServiceQuotaOutput
 
 	// Default is 1/10 of a second, but any retries we need to make should be delayed a few seconds
@@ -161,6 +161,7 @@ func serviceQuotaNeedsIncrease(client awsclient.Client, quotaCode string, servic
 	// then compare it to the desired quota.
 	if result.Quota != nil {
 		if *result.Quota.Value < desiredQuota {
+			reqLogger.Info(fmt.Sprintf("Requiring a servicequota increase: current [%.1f] wanted [%.1f]\n", *result.Quota.Value, desiredQuota))
 			return true, err
 		}
 	}
@@ -269,7 +270,7 @@ func setServiceQuota(client awsclient.Client, quotaCode string, serviceCode stri
 // This is not ideal, as each region has to check the history, since we have to initialize by region
 // Ideally this would happen outside the region-specific init, but this requires the awsclient for the
 // specific region.
-func checkQuotaRequestHistory(awsClient awsclient.Client, quotaCode string, serviceCode string, expectedQuota float64) (string, error) {
+func checkQuotaRequestHistory(reqLogger logr.Logger, awsClient awsclient.Client, quotaCode string, serviceCode string, expectedQuota float64) (string, error) {
 	var err error
 	var nextToken *string
 	var caseID string
@@ -285,6 +286,7 @@ func checkQuotaRequestHistory(awsClient awsclient.Client, quotaCode string, serv
 		var result *servicequotas.ListRequestedServiceQuotaChangeHistoryByQuotaOutput
 		var err error
 		var submitted bool
+		var caseFoundButNotFilled bool
 
 		err = retry.Do(
 			func() (err error) {
@@ -329,9 +331,18 @@ func checkQuotaRequestHistory(awsClient awsclient.Client, quotaCode string, serv
 		// If so, it's already been submitted
 		for _, change := range result.RequestedQuotas {
 			if changeRequestMatches(change, quotaCode, serviceCode, expectedQuota) {
-				submitted = true
-				caseID = *change.CaseId
-				break
+				// This condition can happen, when a queried case exists, but
+				// was not yet filled out completely by AWS. This is likely due
+				// to eventual consistency - in this case we retry till the
+				// CaseId is actually filled out as well.
+				if change.CaseId != nil {
+					submitted = true
+					caseID = *change.CaseId
+					break
+				} else {
+					reqLogger.Info("ServiceQuota increase case found, but not completely filled yet.")
+					caseFoundButNotFilled = true
+				}
 			}
 		}
 
@@ -341,7 +352,7 @@ func checkQuotaRequestHistory(awsClient awsclient.Client, quotaCode string, serv
 		}
 
 		// If NextToken is empty, no more to try.  Break out
-		if result.NextToken == nil {
+		if result.NextToken == nil && caseFoundButNotFilled == false {
 			break
 		}
 

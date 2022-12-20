@@ -36,6 +36,7 @@ import (
 )
 
 var log = logf.Log.WithName("controller_account")
+var AssumeRole = AssumeRoleFunc
 
 const (
 	// createPendTime is the maximum time we allow an Account to sit in Creating state before we
@@ -481,21 +482,6 @@ func (r *AccountReconciler) handleAccountInitializingRegions(reqLogger logr.Logg
 }
 
 // TODO Add service quota validation here
-// States this will walk through (T = reconciliation loop):
-// | T   | ACCOUNT             | ACTIONS                                                                      |
-// |-----+---------------------+------------------------------------------------------------------------------|
-// | 0   | PendingVerification | create case Id                                                               |
-// |     |                     | ┣ open quota requests                                                        |
-// |     |                     | ┗ assign quota requests to status to show 'in-progress'                      |
-// |-----+---------------------+------------------------------------------------------------------------------|
-// | 1-N | PendingVerification | checks if support case if resolved                                           |
-// |     |                     | checks if all quota increases are finished                                   |
-// |     |                     | ┣ Uses status to track open requests                                         |
-// |     |                     | ┣ Calls HandleServiceQuotaRequests for each requests (does the actual check) |
-// |     |                     | ┃ ┗ Marks quota-*status* complete once the request is finished               |
-// |     |                     | ┗ Marks quota-requests as complete once all are done                         |
-// |-----+---------------------+------------------------------------------------------------------------------|
-// | N+1 | ???                 | Where is the PendingVerification status updated?                             |
 func (r *AccountReconciler) HandleNonCCSPendingVerification(reqLogger logr.Logger, currentAcctInstance *awsv1alpha1.Account, awsSetupClient awsclient.Client) (reconcile.Result, error) {
 	// If the supportCaseID is blank and Account State = PendingVerification, create a case
 	if currentAcctInstance.Spec.BYOC {
@@ -564,7 +550,13 @@ func (r *AccountReconciler) HandleNonCCSPendingVerification(reqLogger logr.Logge
 
 			// for each open quota increase request, check it.
 			for i := range openQuotaIncreaseRequestRefs {
-				err := r.HandleServiceQuotaRequests(reqLogger, awsSetupClient, openQuotaIncreaseRequestRefs[i])
+				roleToAssume := getAssumeRole(currentAcctInstance)
+				awsAssumedRoleClient, _, err := AssumeRole(r, reqLogger, currentAcctInstance, awsSetupClient, roleToAssume, "")
+				if err != nil {
+					reqLogger.Error(err, "Could not impersonate AWS account", "aws-account", currentAcctInstance.Spec.AwsAccountID)
+					return reconcile.Result{}, err
+				}
+				err = r.HandleServiceQuotaRequests(reqLogger, awsAssumedRoleClient, openQuotaIncreaseRequestRefs[i])
 				if err != nil {
 					return reconcile.Result{}, err // TODO: For review, do we want to be handling the error like this?
 				}
@@ -584,6 +576,7 @@ func (r *AccountReconciler) HandleNonCCSPendingVerification(reqLogger logr.Logge
 	if supportCaseResolved && len(currentAcctInstance.GetOpenQuotaIncreaseRequestsRef()) == 0 {
 		reqLogger.Info("case and quota increases resolved", "caseID", currentAcctInstance.Status.SupportCaseID)
 		utils.SetAccountStatus(currentAcctInstance, "Account ready to be claimed", awsv1alpha1.AccountReady, AccountReady)
+		r.statusUpdate(currentAcctInstance)
 		return reconcile.Result{}, nil
 	}
 
@@ -673,6 +666,15 @@ func TagAccount(awsSetupClient awsclient.Client, awsAccountID string, shardName 
 	}
 
 	return nil
+}
+
+func AssumeRoleFunc(r *AccountReconciler,
+	reqLogger logr.Logger,
+	currentAcctInstance *awsv1alpha1.Account,
+	awsSetupClient awsclient.Client,
+	roleToAssume string,
+	ccsRoleID string) (awsclient.Client, *sts.AssumeRoleOutput, error) {
+	return r.assumeRole(reqLogger, currentAcctInstance, awsSetupClient, roleToAssume, ccsRoleID)
 }
 
 func (r *AccountReconciler) assumeRole(
@@ -1228,9 +1230,10 @@ func (r *AccountReconciler) getCustomTags(log logr.Logger, account *awsv1alpha1.
 // processTagsFromString accepts a set of strings, each being a key=value pair, one per line.  This is typically defined in YAML similar to:
 //
 // myTags: |
-//   key=value
-//   my-tag=true
-//   base64-is-accepted=eWVzIQ==
+//
+//	key=value
+//	my-tag=true
+//	base64-is-accepted=eWVzIQ==
 //
 // Specifically, we are splitting on the FIRST "=" to deliniate key=value, so any equals signs after the first will go into the value.
 func parseTagsFromString(tags string) []awsclient.AWSTag {
@@ -1331,7 +1334,7 @@ func (r *AccountReconciler) handleCreateAdminAccessRole(
 			return nil, nil, err
 		}
 
-		awsAssumedRoleClient, creds, err = r.assumeRole(reqLogger, currentAcctInstance, awsSetupClient, roleToAssume, roleID)
+		awsAssumedRoleClient, creds, err = AssumeRole(r, reqLogger, currentAcctInstance, awsSetupClient, roleToAssume, roleID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1339,7 +1342,7 @@ func (r *AccountReconciler) handleCreateAdminAccessRole(
 	} else {
 		// Unlike the CCS block, the non-CCS block does not have a dependency on the RoleID to assumeRole. The
 		// awsAssumedRoleClient is what is needed to create the ManagedOpenShift-Support in the non-CCS account.
-		awsAssumedRoleClient, creds, err = r.assumeRole(reqLogger, currentAcctInstance, awsSetupClient, roleToAssume, "")
+		awsAssumedRoleClient, creds, err = AssumeRole(r, reqLogger, currentAcctInstance, awsSetupClient, roleToAssume, "")
 		if err != nil {
 			return nil, nil, err
 		}
